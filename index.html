@@ -197,45 +197,6 @@
     font-size:13.5px; line-height:1.6; color:#d7dde2;
   }
   .goal b{ color:#fff; }
-  .legend{ display:flex; flex-direction:column; gap:8px; margin:0 0 16px; }
-  .legend .row{ display:flex; align-items:center; gap:10px; font-size:13px; color:#c9d0d6; }
-  .swatch{ width:15px; height:15px; border-radius:2px; flex:0 0 auto; position:relative; }
-  .swatch.normal{ background:#ffa01f; }
-  .swatch.ballbrick{ background:#333a45; }
-  .swatch.ballbrick::after{
-    content:""; position:absolute; left:50%; top:50%; width:5px; height:5px;
-    border-radius:50%; background:#fff; transform:translate(-50%,-50%);
-  }
-  .swatch.bomb{ background:#d92662; }
-  .swatch.bomb::after{
-    content:""; position:absolute; left:50%; top:50%; width:5px; height:5px;
-    border-radius:50%; background:#20060f; transform:translate(-50%,-50%);
-  }
-  .swatch.beam{ background:#17b6cf; }
-  .swatch.beam::after{
-    content:"+"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    color:#065a66; font-weight:900; font-size:13px; line-height:1;
-  }
-  .swatch.widen{ background:#27ae60; }
-  .swatch.widen::after{
-    content:""; position:absolute; left:50%; top:50%; width:8px; height:2.5px;
-    background:#fff; transform:translate(-50%,-50%);
-  }
-  .swatch.armor{ background:#8b95a1; }
-  .swatch.armor::after{
-    content:""; position:absolute; left:3px; top:4px; width:7px; height:2px;
-    background:rgba(15,17,20,.65); transform:rotate(35deg);
-  }
-  .swatch.steel{ background:#4a5058; }
-  .swatch.steel::after{
-    content:""; position:absolute; left:50%; top:50%; width:3px; height:3px;
-    background:rgba(0,0,0,.4); transform:translate(-50%,-50%);
-  }
-  .swatch.core{ background:#ffc93c; }
-  .swatch.core::after{
-    content:""; position:absolute; left:50%; top:50%; width:5px; height:5px;
-    border-radius:1px; background:#fff3c4; transform:translate(-50%,-50%);
-  }
   .btn{
     appearance:none; border:0; cursor:pointer; width:100%;
     min-height:50px; border-radius:13px; padding:12px 16px;
@@ -338,7 +299,6 @@
         <h1 id="cardTitle">裂缝入门</h1>
         <p id="cardDesc"></p>
         <div class="goal" id="cardGoal"></div>
-        <div class="legend" id="cardLegend"></div>
         <div class="btnrow">
           <button class="btn" id="btnStart" type="button">开始</button>
           <button class="btn ghost" id="btnStartLevels" type="button">回选关</button>
@@ -812,43 +772,47 @@
     });
   }
 
-  /* ---- 第 10 关：要塞（三层钢墙错位门 + 左右两个偏置密室核心） ----
-     底墙（行25）门偏左 5-6 → 第一层（行20）门偏右 23-24 → 第二层（行14）门偏左 6-7
-     → 第三层（行8）门偏左中 10-11，四道门不在同一条竖直线上，竖直一发处处被钢墙挡回。
-     左密室在第二、三层之间（行9-13、列0-2，钢壁列3、入口在行11），核心在 (11,1)；
-     右密室在第三层之上（行0-7、列26-29，钢壁列25、入口在行4），核心在 (3,27)。
-     两个核心都不在挡板中心（列15）和底墙门的竖直线上，且各有三面钢墙/场地边界包围。 */
+  /* ---- 第 10 关：要塞（易进难出的单向陷阱 + 单个主腔室） ----
+     解压原则：入口容易进、进去不容易出来，不再有错位门和偏置密室。
+     钢框：顶墙行2、左右墙列3/列26、双层底墙行21-22，围成一个主腔室（行3-20、列4-25）。
+     入口在底部中央，呈漏斗形向下张开：行25缺口列9-20（12格宽）→ 行24列10-19
+     → 行23列11-18 → 底墙外层行22列12-17（6格宽），挡板中心（场中 x=180，列14/15
+     交界）竖直或近竖直发球都能直接穿入，不需要精确瞄准。
+     易进难出：底墙内层行21是钢唇，缺口收窄到列13-16（4格）；入口正上方列12/17
+     在行19-20 竖起烟囱钢壁。球进腔后下落时，绝大多数落点砸在行21的钢地板上被弹回
+     腔室继续打砖，只有正对中央4格窄口才会掉出——进得宽、出得窄。
+     腔室内铺满蓝青/青绿冷色砖（混球砖、炸弹、光束），球进去能连续打砖连锁；
+     两个金色核心嵌在上部砖墙 (6,10) 与 (6,19)，对称、可见、可达，全碎才获胜。 */
   function buildL10(){
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(20261104);
-    var layerDoor = { 25:[5,6], 20:[23,24], 14:[6,7], 8:[10,11] };
-    function isLayerDoor(r,c){
-      var d = layerDoor[r];
-      return !!d && c >= d[0] && c <= d[1];
-    }
-    function isRoomWall(r,c){
-      if (c === 3 && r >= 9 && r <= 13 && r !== 11) return true;    // 左密室钢壁，行11留入口
-      if (c === 25 && r >= 0 && r <= 7 && r !== 4) return true;     // 右密室钢壁，行4留入口
+    var coldPal = ['#3f6fe0','#38a6d9','#2ac2b5','#57c785','#4f8fe8'];   // 蓝 青 青绿 绿
+    function isSteel(r,c){
+      if (r === 2 && c >= 3 && c <= 26) return true;                          // 顶墙
+      if ((c === 3 || c === 26) && r >= 3 && r <= 22) return true;            // 左右墙
+      if (r === 22 && c >= 3 && c <= 26 && (c <= 11 || c >= 18)) return true; // 底墙外层，缺口列12-17
+      if (r === 21 && c >= 3 && c <= 26 && (c <= 12 || c >= 17)) return true; // 底墙内层钢唇，缺口列13-16
+      if ((c === 12 || c === 17) && (r === 19 || r === 20)) return true;      // 入口烟囱壁
+      if (r === 23 && c >= 3 && c <= 26 && (c <= 10 || c >= 19)) return true; // 漏斗壁，逐层外张
+      if (r === 24 && c >= 3 && c <= 26 && (c <= 9 || c >= 20)) return true;
+      if (r === 25 && c >= 3 && c <= 26 && (c <= 8 || c >= 21)) return true;
       return false;
     }
-    function isRoomInner(r,c){
-      return (c <= 2 && r >= 9 && r <= 13) || (c >= 26 && r <= 7);
-    }
-    function isRoomDoor(r,c){
-      return (r === 11 && c === 3) || (r === 4 && c === 25);
-    }
+    function isThroat(r,c){ return r >= 19 && c >= 13 && c <= 16; }           // 烟囱内通道，保持空
+    function isInner(r,c){ return r >= 3 && r <= 20 && c >= 4 && c <= 25; }   // 主腔室内部
     for (var r=0;r<ROWS;r++){
       for (var c=0;c<COLS;c++){
-        if (layerDoor[r]){ if (!isLayerDoor(r,c)) putSteel(steels, r, c); continue; }
-        if (isRoomWall(r,c)){ putSteel(steels, r, c); continue; }
-        if (isRoomDoor(r,c)) continue;                            // 密室入口保持空
-        if (isRoomInner(r,c)){
-          if ((r === 11 && c === 1) || (r === 3 && c === 27)) putBrick(bricks, r, c, 'core', 1);
-          continue;                                               // 密室其余空格留空
-        }
-        var d = rollType(rnd, [[0.06,'ball'],[0.10,'bomb']]);
-        putBrick(bricks, r, c, d.type, d.hp);
+        if (isSteel(r,c)){ putSteel(steels, r, c); continue; }
+        if (!isInner(r,c) || isThroat(r,c)) continue;                         // 腔外与通道留空
+        if ((r === 6 && c === 10) || (r === 6 && c === 19)){ putBrick(bricks, r, c, 'core', 1); continue; }
+        // 定点特殊砖：烟囱正上方放球砖，竖直进腔的第一时间就能在腔内放出斜射球开始连锁；
+        // 中上部一对炸弹、一对光束，保证球在腔里能连续清砖，不会只碰钢块
+        var fixed = { '17,14':'ball', '17,15':'ball', '14,9':'bomb', '14,20':'bomb', '10,14':'beam', '10,15':'beam' };
+        if (fixed[key(r,c)]){ putBrick(bricks, r, c, fixed[key(r,c)], 1); continue; }
+        var d = rollType(rnd, [[0.055,'ball'],[0.08,'bomb'],[0.09,'beam']]);
+        var nb = putBrick(bricks, r, c, d.type, d.hp);
+        if (nb.type === 'normal') nb.color = coldPal[Math.floor((r + c) / 5) % coldPal.length];
       }
     }
     var total = 0;
@@ -857,16 +821,6 @@
   }
 
   /* ================= 关卡表 ================= */
-  var LEGEND = {
-    normal: ['normal',    '普通砖，橙色小方格，一碰就碎'],
-    ball:   ['ballbrick', '球砖，深色格加小白点，打碎多放出 2 颗球'],
-    bomb:   ['bomb',      '炸弹，红点标记，炸掉周围一圈，相邻炸弹连锁引爆'],
-    beam:   ['beam',      '光束，青色十字，清掉整行整列，直到钢块为止'],
-    armor:  ['armor',     '装甲砖，灰板有裂纹，要打 2 到 4 下；炸弹和光束一下顶 3 下'],
-    widen:  ['widen',     '加宽砖，绿色横条，挡板加宽两格，直到本关结束'],
-    steel:  ['steel',     '钢块，深灰小方格，打不碎，只能绕开'],
-    core:   ['core',      '金色核心，两个分藏在要塞左右两个钢墙密室里，全部打碎才过关']
-  };
   var T_ALL = ['normal','ball','bomb','beam','widen','steel'];
   var LEVELS = [
     { name:'裂缝入门', speed:330, paddle:76, serves:0, types:T_ALL, build:buildL1,
@@ -887,8 +841,8 @@
       desc:'暗紫灰的砖块沿钢墙迷宫的通道排布。钢块在墙里搭出三层迷宫，底部入口只有一个格子宽。瞄准要稳，球进了通道就会自己找到路。' },
     { name:'连锁风暴', speed:384, paddle:76, serves:0, types:['normal','ball','bomb','beam','armor','widen','steel'], build:buildL9,
       desc:'五彩砖块像风暴一样旋向墙心，球砖、炸弹、光束、装甲全混在旋臂上。一次连锁可能带走半面墙，多球同屏是常态。' },
-    { name:'要塞', speed:378, paddle:76, serves:5, types:['normal','ball','bomb','steel','core'], build:buildL10,
-      desc:'三层钢墙把要塞隔成错层迷宫：底墙的门偏左、一层门偏右、二层门偏左、顶层门偏左中，没有一条竖线能贯通，竖直一发只会撞墙弹回。两个金色核心分藏在左右两个钢墙密室里，必须走错位门、再借斜射或侧墙反弹才能打到，全部打碎才获胜。发球只有 5 次，用完要塞会重建，已通关的关卡不会丢。' }
+    { name:'要塞', speed:378, paddle:76, serves:5, types:['normal','ball','bomb','beam','steel','core'], build:buildL10,
+      desc:'要塞是一间钢框围成的主腔室，底部中央开着一个宽漏斗入口：挡板正中竖直发球就能直接进去，不用对准任何错位门。入口内侧有钢唇收口，球进去后下落大多砸在钢地板上弹回腔室，会在里面连着打砖、连锁。腔室里铺满蓝青冷色砖，两个金色核心就嵌在上部砖墙里，看得见、够得着，全部打碎才获胜。发球只有 5 次，用完要塞会重建，已通关的关卡不会丢。' }
   ];
 
   /* ================= 游戏状态 ================= */
@@ -1206,7 +1160,6 @@
   var cardTitle = document.getElementById('cardTitle');
   var cardDesc = document.getElementById('cardDesc');
   var cardGoal = document.getElementById('cardGoal');
-  var cardLegend = document.getElementById('cardLegend');
   var cardTiny = document.getElementById('cardTiny');
   function fillCard(n){
     var def = LEVELS[n-1];
@@ -1214,14 +1167,8 @@
     cardTitle.textContent = def.name;
     cardDesc.textContent = def.desc;
     cardGoal.innerHTML = def.serves
-      ? '目标：摧毁分藏在左右密室里的 <b>两个金色核心</b>，全部打碎才过关。发球上限 <b>5 次</b>，用完要塞就会重建。'
+      ? '目标：摧毁主腔室里的 <b>两个金色核心</b>，全部打碎才过关。发球上限 <b>5 次</b>，用完要塞就会重建。'
       : '目标：打掉 <b>95%</b> 的可破坏砖块即可过关。丢球会自动补发，不用担心。';
-    var html = '';
-    def.types.forEach(function(t){
-      var L = LEGEND[t];
-      html += '<div class="row"><span class="swatch ' + L[0] + '"></span>' + L[1] + '</div>';
-    });
-    cardLegend.innerHTML = html;
     cardTiny.textContent = def.serves
       ? '点开始后才计时 · 发球次数用完不影响已通关进度'
       : '点开始后才计时 · 拖动屏幕或下方控制条都能移动挡板';
