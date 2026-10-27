@@ -1,0 +1,12 @@
+{
+  "description": "解压砖块 · 微信小游戏",
+  "compileType": "game",
+  "libVersion": "latest",
+  "appid": "wx6476ce5a73237a36",
+  "projectname": "jieya-zhuankuai-minigame",
+  "setting": {
+    "es6": true,
+    "minified": false
+  },
+  "condition": {}
+}
