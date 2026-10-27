@@ -291,7 +291,7 @@
       <div class="card">
         <span class="tag">解压砖块</span>
         <h1>解压砖块</h1>
-        <p>把球从钢墙的缺口送进去，看整面砖墙在球砖、炸弹和光束的连锁里崩掉。一共 60 关，第 10、20、30、40、50、60 关是藏着金色核心的要塞；另外每天还有一关按 UTC 日期生成的新关。</p>
+        <p>把球从钢墙的缺口送进去，看整面砖墙在球砖、炸弹和光束的连锁里崩掉。一共 100 关，第 10、20、30、40、50、60、70、80、90、100 关是藏着金色核心的要塞；另外每天还有一关按 UTC 日期生成的新关。</p>
         <div class="btnrow">
           <button class="btn daily" id="btnHomeDaily" type="button"><span class="dm" id="homeDailyMain">每日关卡</span><span class="ds" id="homeDailyStatus">今日还没通关 · 点此挑战</span></button>
           <button class="btn" id="btnHomeStart" type="button">开始游戏</button>
@@ -308,7 +308,7 @@
           <h2>选关</h2>
           <button class="sel-back" id="btnSelectBack" type="button" aria-label="返回">‹</button>
         </div>
-        <div class="sel-count" id="selCount">已通关 0 / 60 关</div>
+        <div class="sel-count" id="selCount">已通关 0 / 100 关</div>
         <p class="sel-note">每 10 关是 1 座要塞，打碎金色核心。</p>
         <button class="daily-card" id="btnSelectDaily" type="button"><span class="dm" id="selDailyMain">每日关卡</span><span class="ds" id="selDailyStatus">每天一关</span></button>
         <div class="lvgrid" id="lvGrid"></div>
@@ -467,7 +467,7 @@
     var rawProg = window.localStorage.getItem('jy-progress');
     if (rawProg){
       var pp = JSON.parse(rawProg);
-      if (pp && pp.unlocked) PROG.unlocked = clamp(parseInt(pp.unlocked,10)||1, 1, 60);
+      if (pp && pp.unlocked) PROG.unlocked = clamp(parseInt(pp.unlocked,10)||1, 1, 100);
       if (pp && pp.best) PROG.best = pp.best;
     }
   } catch(e){}
@@ -495,12 +495,17 @@
   // failedCount = 此前未通关次数；本次挑战序号 = failedCount + 1
   function assistFor(failedCount){
     var no = (failedCount || 0) + 1;
-    var tier = no >= 5 ? 2 : (no >= 3 ? 1 : 0);
+    // 降档：第 21 次挑战起（未通关尝试超过 20 次）在助力 2 之上再降一档，只降一档、
+    // 不再继续降；装甲血量 -1、钢框缺口 +1 格由 applyDowngrade 在重建关卡时落实，
+    // 要塞发球与助力合计封顶 +2。通关清零后全部取消，恢复原难度。
+    var tier = no >= 21 ? 3 : (no >= 5 ? 2 : (no >= 3 ? 1 : 0));
     return {
-      no: no, tier: tier,
-      paddleMul: tier === 2 ? 1.20 : (tier === 1 ? 1.12 : 1),
-      speedMul:  tier === 2 ? 0.85 : (tier === 1 ? 0.92 : 1),
-      servesBonus: tier === 2 ? 1 : 0
+      no: no, tier: tier, downgrade: tier === 3,
+      paddleMul: tier === 3 ? 1.32 : (tier === 2 ? 1.20 : (tier === 1 ? 1.12 : 1)),
+      speedMul:  tier === 3 ? 0.76 : (tier === 2 ? 0.85 : (tier === 1 ? 0.92 : 1)),
+      servesBonus: tier === 3 ? 2 : (tier === 2 ? 1 : 0),
+      armorMinus: tier === 3 ? 1 : 0,
+      gapPlus: tier === 3 ? 1 : 0
     };
   }
   function curFailedCount(){
@@ -517,6 +522,41 @@
   function clearAttempts(){
     if (S.daily){ if (ATT.dy[S.dailyDate] != null){ delete ATT.dy[S.dailyDate]; saveAtt(); } }
     else if (ATT.lv[S.level] != null){ delete ATT.lv[S.level]; saveAtt(); }
+  }
+
+  // 降档落地（仅 tier 3 时生效，在 loadLevel/loadDailyLevel 构建完关卡后调用）：
+     // 装甲砖血量 -1（最低 1）；底部三行钢层里钢块数 >= 8 的行，在最宽缺口一侧去掉
+     // 1 格钢，缺口加宽 1 格。不动图案、结构、95% 目标与核心数量/位置，不删任何砖。
+  function applyDowngrade(){
+    if (!S.assist || !S.assist.downgrade) return;
+    S.bricks.forEach(function(b){
+      if (b.type === 'armor'){ b.hp = Math.max(1, b.hp - 1); b.maxHp = Math.max(1, b.maxHp - 1); }
+    });
+    for (var r = ROWS - 3; r < ROWS; r++){
+      if (!grid[r]) continue;
+      var minC = -1, maxC = -1, steelCnt = 0, cc;
+      for (cc = 0; cc < COLS; cc++){
+        var cell0 = grid[r][cc];
+        if (cell0 && cell0.kind === 'steel'){ steelCnt++; if (minC < 0) minC = cc; maxC = cc; }
+      }
+      if (steelCnt < 8 || minC < 0) continue;
+      var bestStart = -1, bestLen = 0, runStart = -1, runLen = 0;
+      for (cc = minC; cc <= maxC; cc++){
+        if (!grid[r][cc]){
+          if (runStart < 0){ runStart = cc; runLen = 1; } else runLen++;
+          if (runLen > bestLen){ bestLen = runLen; bestStart = runStart; }
+        } else { runStart = -1; runLen = 0; }
+      }
+      if (bestStart < 0) continue;
+      var target = -1;
+      if (bestStart - 1 >= minC && grid[r][bestStart - 1] && grid[r][bestStart - 1].kind === 'steel') target = bestStart - 1;
+      else if (bestStart + bestLen <= maxC && grid[r][bestStart + bestLen] && grid[r][bestStart + bestLen].kind === 'steel') target = bestStart + bestLen;
+      if (target < 0) continue;
+      var stRef = grid[r][target].ref;
+      grid[r][target] = null;
+      var idx = S.steels.indexOf(stRef);
+      if (idx >= 0) S.steels.splice(idx, 1);
+    }
   }
 
   /* ================= 每日关卡存档：最佳时间按 UTC 日期单独保存（键里带日期） =================
@@ -846,6 +886,11 @@
      统一网格：30 列 × 26 行小方格，格 12px、砖 11px、只留 1px 深色缝线。
      grid[row][col] -> {kind:'brick'|'steel', ref} | null */
   var COLS = 30, ROWS = 26, CELL = 12, BSZ = 11, GOX = 0, GOY = 78;
+  // 网格切换：默认标准格（30×26、格 12px）；50/60 关用密格（45×39、格 8px），
+  // 61-100 关海洋细格（40×34、格 9px）。每个构建函数开头先设好自己的网格，
+  // 场地物理尺寸（360 宽、砖区起点）不变，球半径与挡板不变。
+  function setGrid(cols, rows, cell, bsz, gox, goy){ COLS = cols; ROWS = rows; CELL = cell; BSZ = bsz; GOX = gox; GOY = goy; }
+  function stdGrid(){ setGrid(30, 26, 12, 11, 0, 78); }
   var grid = [];
   function blankGrid(){
     var g = [];
@@ -878,6 +923,7 @@
   }
   // 通用构建：砖墙区 + 底部钢条（带缺口）+ 额外钢格/额外砖（迷宫、要塞）
   function genericBuild(cfg){
+    stdGrid();
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(cfg.seed);
@@ -912,6 +958,7 @@
 
   /* ---- 第 1 关：裂缝入门（已确认布局，保持不变） ---- */
   function buildL1(){
+    stdGrid();
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(20261026);
@@ -1097,6 +1144,7 @@
      腔室内铺满蓝青/青绿冷色砖（混球砖、炸弹、光束），球进去能连续打砖连锁；
      两个金色核心嵌在上部砖墙 (6,10) 与 (6,19)，对称、可见、可达，全碎才获胜。 */
   function buildL10(){
+    stdGrid();
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(20261104);
@@ -1310,6 +1358,7 @@
      出口比入口窄得多；烟囱壁在列6/10、行19-20。两个金色核心嵌在上部砖墙
      (5,7) 与 (5,22)，左上、右上对称可见，全碎才获胜，发球上限 5 次。 */
   function buildL20(){
+    stdGrid();
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(20261114);
@@ -1573,6 +1622,7 @@
      三个金色核心嵌在上部砖墙 (5,7)、(5,15)、(5,22)，左上、中上、右上可见可达，
      三个全碎才获胜；发球上限 6 次。腔内蓝紫砖面点缀金砖，混球砖、炸弹、光束。 */
   function buildL30(){
+    stdGrid();
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(20261124);
@@ -1637,6 +1687,22 @@
     var open = {}, k;
     for (k in o.mask) open[k] = true;
     if (o.channel) for (k in o.channel) open[k] = true;
+    // 通道接长（防密封死局）：从每条通道的顶端向上延伸，直到接进图案中空区，
+    // 保证通道与中空区之间不被描边钢块封死，中空内的砖永远有入口可达。
+    if (o.channel){
+      var chanTop = {};
+      for (k in o.channel){
+        var cp = k.split(','), cr0 = +cp[0], cc0 = +cp[1];
+        if (chanTop[cc0] == null || cr0 < chanTop[cc0]) chanTop[cc0] = cr0;
+      }
+      for (var ccol in chanTop){
+        var rr2 = chanTop[ccol] - 1, guard2 = 0;
+        while (rr2 >= 0 && guard2++ < 8 && !o.mask[key(rr2, +ccol)]){
+          open[key(rr2, +ccol)] = true;
+          rr2--;
+        }
+      }
+    }
     var steels = {};
     for (k in o.mask){
       var parts = k.split(',');
@@ -1648,6 +1714,7 @@
       }
     }
     if (o.steelExtra) for (k in o.steelExtra) steels[k] = true;
+    if (o.fixed) for (k in o.fixed) delete steels[k];   // 定点砖优先于描边钢：定点砖永远可打掉，也成为密封钢环的破口
     return genericBuild({
       seed: o.seed, r0:0, r1:23, c0:2, c1:27,
       steelRow:25, sc0:2, sc1:27, gaps:o.gaps,
@@ -1709,7 +1776,7 @@
     );
     return patternBuild({
       seed: 20261125, mask: mask,
-      channel: channelMask(19,23,[14,15]),
+      channel: mergeMasks(channelMask(19,23,[14,15]), channelMask(0,4,[14,15])),
       gaps: {14:true, 15:true},
       fixed: fixedOf([[13,12,'ball'],[13,17,'ball'],[17,12,'ball'],[17,17,'ball']]),
       table: [[0.05,'ball'],[0.08,'bomb'],[0.10,'beam'],[0.11,'widen']],
@@ -1734,7 +1801,7 @@
     );
     return patternBuild({
       seed: 20261126, mask: mask,
-      channel: channelMask(14,23,[13,14,15]),
+      channel: mergeMasks(channelMask(14,23,[13,14,15]), cellSet([[20,10],[21,10],[20,19],[21,19]])),
       gaps: {13:true, 14:true, 15:true},
       fixed: fixedOf([[18,10,'ball'],[18,19,'ball']]),
       table: [[0.14,'armor',2],[0.19,'ball'],[0.22,'bomb']],
@@ -1868,36 +1935,46 @@
     });
   }
 
-  /* ---- 第 40 关：城堡要塞（易进难出，中央漏斗 + 单主腔室，2 核心，发球 5 次） ----
-     漏斗向下张开：行25缺口列10-19（10格）→ 行24列11-18 → 行23列12-17 →
-     底墙外层行22列12-17（6格）→ 内层钢唇行21只留列13-16（4格）；
-     烟囱壁列12/17、行19-20。核心嵌在上部砖墙 (5,9) 与 (5,20)。 */
+  /* ---- 第 40 关：双层套娃要塞（外腔 + 内腔两层，左侧宽漏斗进外腔，右侧 2 格内门进内腔，2 核心，发球 5 次） ----
+     钢框列2/27、顶墙行2、底墙行23。入口在左侧：漏斗向下张开 行25缺口列3-10 →
+     行24列4-9 → 底墙行23列5-8（4格），先进下层外腔（行13-22）；外腔与上层内腔
+     （行3-11）之间隔着行12钢墙，只在右侧留列22-23 两格内门。两个金色核心藏在
+     内腔左上 (4,6) 与右上 (4,23)，各自被一圈装甲砖护卫，必须穿过内门才打得到；
+     挡板正中竖直一发会被行25钢墙挡回，连外腔都进不去，更碰不到核心。
+     外腔蓝紫砖面混球砖与一排炸弹链，内腔装甲更多。砖 450 块 + 2 核心。 */
   function buildL40(){
+    stdGrid();
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(20261134);
-    var pal = ['#7a86a8','#6a76a0','#8a94b8','#5a6a94','#94a0c0'];   // 城堡石灰蓝
+    var pal = ['#5a5ae0','#6a5ae8','#4f6fe8','#7a6ae8','#6464d8'];   // 蓝紫砖面
     function isSteel(r,c){
-      if (r === 2 && c >= 3 && c <= 26) return true;
-      if ((c === 3 || c === 26) && r >= 3 && r <= 22) return true;
-      if (r === 22 && c >= 3 && c <= 26 && (c <= 11 || c >= 18)) return true;
-      if (r === 21 && c >= 3 && c <= 26 && (c <= 12 || c >= 17)) return true;
-      if ((c === 12 || c === 17) && (r === 19 || r === 20)) return true;
-      if (r === 23 && c >= 3 && c <= 26 && (c <= 11 || c >= 18)) return true;
-      if (r === 24 && c >= 3 && c <= 26 && (c <= 10 || c >= 19)) return true;
-      if (r === 25 && c >= 3 && c <= 26 && (c <= 9 || c >= 20)) return true;
+      if (r === 2 && c >= 2 && c <= 27) return true;                          // 顶墙
+      if ((c === 2 || c === 27) && r >= 3 && r <= 23) return true;            // 左右墙
+      if (r === 12 && c >= 3 && c <= 26 && (c <= 21 || c >= 24)) return true; // 内外腔隔墙，内门只留列22-23
+      if (r === 23 && c >= 2 && c <= 27 && (c <= 4 || c >= 9)) return true;   // 底墙，入口列5-8
+      if (r === 24 && c >= 2 && c <= 27 && (c <= 3 || c >= 10)) return true;  // 漏斗壁，逐层外张
+      if (r === 25 && c >= 2 && c <= 27 && (c <= 2 || c >= 11)) return true;  // 底部缺口列3-10
       return false;
     }
-    function isThroat(r,c){ return r >= 18 && c >= 13 && c <= 16; }
-    function isInner(r,c){ return r >= 3 && r <= 20 && c >= 4 && c <= 25; }
+    function isThroat(r,c){ return r >= 21 && c >= 6 && c <= 7; }            // 入口正上方通道，保持空
+    function isInner(r,c){ return r >= 3 && r <= 22 && c >= 3 && c <= 26 && r !== 12; }
+    var armorRing = cellSet([[3,5],[3,6],[3,7],[4,5],[4,7],[5,5],[5,6],[5,7],
+                             [3,22],[3,23],[3,24],[4,22],[4,24],[5,22],[5,23],[5,24]]);
+    var fixed = { '20,6':'ball', '20,7':'ball',
+                  '14,8':'bomb', '14,11':'bomb', '14,14':'bomb', '14,17':'bomb', '14,20':'bomb',
+                  '17,14':'beam', '17,15':'beam',
+                  '9,9':'ball', '9,20':'ball', '8,6':'bomb', '8,23':'bomb', '6,14':'beam', '6,15':'beam' };
     for (var r=0;r<ROWS;r++){
       for (var c=0;c<COLS;c++){
         if (isSteel(r,c)){ putSteel(steels, r, c); continue; }
         if (!isInner(r,c) || isThroat(r,c)) continue;
-        if ((r === 5 && c === 9) || (r === 5 && c === 20)){ putBrick(bricks, r, c, 'core', 1); continue; }
-        var fixed = { '17,14':'ball', '17,15':'ball', '13,9':'bomb', '13,20':'bomb', '10,14':'beam', '10,15':'beam' };
+        if ((r === 4 && c === 6) || (r === 4 && c === 23)){ putBrick(bricks, r, c, 'core', 1); continue; }
+        if (armorRing[key(r,c)]){ putBrick(bricks, r, c, 'armor', 2); continue; }
         if (fixed[key(r,c)]){ putBrick(bricks, r, c, fixed[key(r,c)], 1); continue; }
-        var d = rollType(rnd, [[0.055,'ball'],[0.08,'bomb'],[0.09,'beam']]);
+        var table = (r <= 11) ? [[0.05,'ball'],[0.08,'bomb'],[0.095,'beam'],[0.12,'armor',2]]
+                              : [[0.05,'ball'],[0.075,'bomb'],[0.09,'beam'],[0.13,'armor',2]];
+        var d = rollType(rnd, table);
         var nb = putBrick(bricks, r, c, d.type, d.hp);
         if (nb.type === 'normal') nb.color = pal[Math.floor((r + c) / 5) % pal.length];
       }
@@ -1917,20 +1994,20 @@
       seed: 20261135, mask: mask,
       channel: channelMask(20,23,[15,16]),
       gaps: {15:true, 16:true},
-      fixed: fixedOf([[19,15,'ball'],[10,14,'ball'],[13,14,'widen']]),
+      fixed: fixedOf([[19,15,'ball'],[10,14,'ball'],[13,14,'widen'],[9,14,'bomb']]),
       table: [[0.16,'armor',2],[0.20,'ball'],[0.23,'bomb'],[0.25,'beam']],
       colorFor: function(r,c){ return grad([[240,120,90],[232,95,70],[215,75,55]], r/23); }   // 珊瑚红
     });
   }
 
-  /* ---- 第 42 关：圆环（环形中空，中央留一块砖岛，左下 2 格入口） ---- */
+  /* ---- 第 42 关：圆环（环形中空，中央留一块砖岛，左下 2 格入口，环带底部另开一条 2 格宽隧道直通环心砖岛（防密封死局）） ---- */
   function buildL42(){
     var mask = maskSub(discMask(11.5, 14.5, 8.2), discMask(11.5, 14.5, 4.2));
     return patternBuild({
       seed: 20261136, mask: mask,
-      channel: channelMask(17,23,[9,10]),
+      channel: mergeMasks(channelMask(17,23,[9,10]), cellSet([[15,13],[15,14],[14,13],[14,14]])),
       gaps: {9:true, 10:true},
-      fixed: fixedOf([[16,9,'ball'],[7,18,'ball'],[11,7,'widen']]),
+      fixed: fixedOf([[16,9,'ball'],[7,18,'ball'],[11,7,'widen'],[12,14,'bomb']]),
       table: [[0.15,'armor',2],[0.19,'ball'],[0.215,'bomb'],[0.235,'beam']],
       colorFor: function(r,c){ return grad([[90,200,220],[70,170,215],[55,140,205]], r/23); }   // 湖蓝
     });
@@ -2027,7 +2104,7 @@
       seed: 20261142, mask: mask,
       channel: channelMask(21,23,[11,12]),
       gaps: {11:true, 12:true},
-      fixed: fixedOf([[18,12,'ball'],[11,17,'ball'],[18,17,'widen']]),
+      fixed: fixedOf([[18,12,'ball'],[11,17,'ball'],[18,17,'widen'],[11,15,'bomb']]),
       table: [[0.15,'armor',2],[0.19,'ball'],[0.215,'beam'],[0.23,'bomb']],
       colorFor: function(r,c){ return grad([[100,170,235],[80,150,225],[60,125,210]], r/23); }   // 海蓝
     });
@@ -2051,36 +2128,51 @@
     });
   }
 
-  /* ---- 第 50 关：大腔室要塞（易进难出，左侧宽漏斗 + 更大单腔室，2 核心，发球 5 次） ----
-     腔室比第 40 关更宽（内腔列3-26）。漏斗偏左：行25缺口列2-11（10格）→ 行24列3-10
-     → 行23列4-9 → 底墙外层行22列5-8（4格）→ 内层钢唇行21只留列6-7（2格）；
-     烟囱壁列5/8、行19-20。核心嵌在上部砖墙 (5,8) 与 (5,21)。 */
+  /* ---- 第 50 关：螺旋回廊要塞（密格加密版：45 列 × 39 行、格 8px，结构与原版一致） ----
+     原版 30×26 网格里砖量只有 311 块，现按用户要求缩小砖块加密网格：场地物理尺寸
+     不变，列数 30→45、行数 26→39，螺旋回廊走向、右侧斜坡漏斗入口、侧 pocket 与
+     双核心位置全部按 1.5 倍坐标映射保持不变；回廊宽 3 格 × 8px = 24px，与原版
+     2 格 × 12px 物理宽度相同，球半径不变、可通行。砖面定点抽稀后约 520 块 + 2 核心。 */
   function buildL50(){
+    setGrid(45, 39, 8, 7, 0, 78);
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(20261144);
-    var pal = ['#2f8fb0','#38a6d9','#2ac2b5','#3f7fe0','#57c785'];   // 青蓝绿大腔室
+    var pal = ['#3a4a8c','#46589e','#5266b0','#3f5a94','#5a6fc0'];   // 螺旋靛蓝砖面
     function isSteel(r,c){
-      if (r === 2 && c >= 2 && c <= 27) return true;
-      if ((c === 2 || c === 27) && r >= 3 && r <= 22) return true;
-      if (r === 22 && c >= 2 && c <= 27 && (c <= 4 || c >= 9)) return true;
-      if (r === 21 && c >= 2 && c <= 27 && (c <= 5 || c >= 8)) return true;
-      if ((c === 5 || c === 8) && (r === 19 || r === 20)) return true;
-      if (r === 23 && c >= 2 && c <= 27 && (c <= 3 || c >= 10)) return true;
-      if (r === 24 && c >= 2 && c <= 27 && (c <= 2 || c >= 11)) return true;
-      if (r === 25 && c >= 2 && c <= 27 && c >= 12) return true;
+      if (r === 3 && c >= 3 && c <= 40) return true;                          // 顶墙（原行2）
+      if ((c === 3 || c === 40) && r >= 4 && r <= 35) return true;            // 左右墙（原列2/27）
+      if (r === 35 && c >= 3 && c <= 40 && (c <= 35 || c >= 39)) return true;   // 底墙（原行23），入口列36-38
+      if (r === 36 && c >= 3 && c <= 40 && (c <= 34 || c >= 39)) return true;   // 漏斗层（原行24），缺口列35-38
+      if (r === 37 && c >= 3 && c <= 40 && (c <= 32 || c >= 39)) return true;   // 底部缺口层（原行25），缺口列33-38
       return false;
     }
-    function isThroat(r,c){ return r >= 17 && c >= 6 && c <= 7; }
-    function isInner(r,c){ return r >= 3 && r <= 20 && c >= 3 && c <= 26; }
+    function inCorr(r,c){
+      if (c >= 36 && c <= 38 && r >= 6 && r <= 33) return true;   // A 右壁上行（原列24-25）
+      if (r >= 6 && r <= 7 && c >= 6 && c <= 38) return true;     // B 顶壁左行（原行4-5）
+      if (c >= 6 && c <= 7 && r >= 6 && r <= 27) return true;      // C 左壁下行（原列4-5）
+      if (r >= 25 && r <= 27 && c >= 6 && c <= 28) return true;    // D 中下横行（原行17-18）
+      if (c >= 27 && c <= 28 && r >= 12 && r <= 27) return true;    // E 内右壁上行（原列18-19）
+      if (r >= 12 && r <= 13 && c >= 12 && c <= 28) return true;    // F 内顶横行（原行8-9）
+      if (r >= 15 && r <= 16 && c >= 20 && c <= 21) return true;   // 中心密室入口（原行10-11、列13-14）
+      if (r >= 19 && r <= 21 && c === 8) return true;              // 侧 pocket 入口（原列6）
+      return false;
+    }
+    function isInner(r,c){ return r >= 4 && r <= 34 && c >= 4 && c <= 39; }
+    var corrFixed = { '7,36':'ball', '7,7':'ball', '25,7':'ball', '25,27':'ball', '12,27':'ball',
+                      '18,36':'armor', '6,21':'armor', '25,18':'beam', '13,18':'beam' };
     for (var r=0;r<ROWS;r++){
       for (var c=0;c<COLS;c++){
         if (isSteel(r,c)){ putSteel(steels, r, c); continue; }
-        if (!isInner(r,c) || isThroat(r,c)) continue;
-        if ((r === 5 && c === 8) || (r === 5 && c === 21)){ putBrick(bricks, r, c, 'core', 1); continue; }
-        var fixed = { '16,6':'ball', '16,7':'ball', '12,10':'bomb', '12,19':'bomb', '9,14':'beam', '9,15':'beam' };
-        if (fixed[key(r,c)]){ putBrick(bricks, r, c, fixed[key(r,c)], 1); continue; }
-        var d = rollType(rnd, [[0.055,'ball'],[0.08,'bomb'],[0.09,'beam']]);
+        if (!isInner(r,c)) continue;
+        if ((r === 20 && c === 11) || (r === 20 && c === 21)){ putBrick(bricks, r, c, 'core', 1); continue; }
+        if (inCorr(r,c)){
+          var cf = corrFixed[key(r,c)];
+          if (cf) putBrick(bricks, r, c, cf, cf === 'armor' ? 2 : 1);
+          continue;
+        }
+        if (rnd() < 0.34) continue;   // 加密后定点抽稀，把砖量控制在约 520 块（结构与回廊不动）
+        var d = rollType(rnd, [[0.05,'ball'],[0.075,'bomb'],[0.09,'beam'],[0.12,'armor',2]]);
         var nb = putBrick(bricks, r, c, d.type, d.hp);
         if (nb.type === 'normal') nb.color = pal[Math.floor((r + c) / 5) % pal.length];
       }
@@ -2114,9 +2206,9 @@
     var mask = mergeMasks(rectMask(5,19,9,11), cellSet(arms));
     return patternBuild({
       seed: 20261146, mask: mask,
-      channel: channelMask(20,23,[19,20]),
+      channel: mergeMasks(channelMask(20,23,[19,20]), cellSet([[20,10],[21,10]])),
       gaps: {19:true, 20:true},
-      fixed: fixedOf([[19,18,'ball'],[6,17,'ball'],[12,10,'widen']]),
+      fixed: fixedOf([[19,18,'ball'],[4,17,'ball'],[12,10,'widen']]),
       table: [[0.20,'armor',2],[0.235,'ball'],[0.265,'beam'],[0.28,'bomb']],
       colorFor: function(r,c){ return grad([[90,190,160],[70,170,145],[52,148,128]], r/23); }   // 青绿
     });
@@ -2151,7 +2243,7 @@
       seed: 20261148, mask: mask,
       channel: channelMask(21,23,[12,13]),
       gaps: {12:true, 13:true},
-      fixed: fixedOf([[16,17,'ball'],[7,12,'ball'],[11,18,'widen']]),
+      fixed: fixedOf([[16,17,'ball'],[7,12,'ball'],[11,18,'widen'],[10,14,'bomb']]),
       table: [[0.20,'armor',2],[0.24,'ball'],[0.265,'beam'],[0.28,'bomb']],
       colorFor: function(r,c){ return grad([[170,180,195],[150,160,178],[128,140,160]], r/23); }   // 钢银灰
     });
@@ -2216,7 +2308,7 @@
     for (c=4;c<=25;c++){ frame.push([3,c]); if (c !== 10 && c !== 11) frame.push([21,c]); }
     for (r=4;r<=20;r++){ frame.push([r,4]); frame.push([r,25]); }
     for (c=5;c<=18;c++) frame.push([12,c]);                                  // 框内横隔墙
-    for (r=12;r<=20;r++) frame.push([r,18]);                                 // 框内竖隔墙
+    for (r=12;r<=20;r++){ if (r !== 16 && r !== 17) frame.push([r,18]); }   // 竖隔墙在行16-17 留门洞（该处填砖，可打通）                                 // 框内竖隔墙
     return genericBuild({
       seed: 20261152, r0:0, r1:23, c0:2, c1:27,
       steelRow:25, sc0:2, sc1:27, gaps:{10:true, 11:true},
@@ -2246,48 +2338,671 @@
     });
   }
 
-  /* ---- 第 60 关：星核要塞（最终要塞：中央 8 格超宽漏斗 + 大腔室 + 三个中空子图案，3 核心，发球 6 次） ----
-     漏斗：行25缺口列8-21（14格）→ 行24列9-20 → 行23列10-19 → 底墙外层行22列11-18
-     （8格）→ 内层钢唇行21只留列13-16（4格）；烟囱壁列12/17、行19-20。
-     腔内留三个圆形中空子图案（球可钻入子腔打砖）。核心 (6,8)、(6,15)、(6,21)。 */
+  /* ---- 第 60 关：三室星核要塞（密格加密版：45 列 × 39 行、格 8px，结构与原版一致） ----
+     原版 30×26 网格里砖量 427 块，现按用户要求缩小砖块加密网格：场地物理尺寸不变，
+     列数 30→45、行数 26→39；两道钢隔墙（密格列15、列27）、三间互不连通的密室、
+     三个入口（左漏斗、中央烟囱、右斜坡）与三核心位置全部按 1.5 倍坐标映射保持不变，
+     各入口宽 3 格 × 8px = 24px，与原版 2 格物理宽度相同、可通行。砖面定点抽稀后
+     约 550 块 + 3 核心。发球 6 次不变。 */
   function buildL60(){
+    setGrid(45, 39, 8, 7, 0, 78);
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(20261154);
-    var pal = ['#4f6fe8','#6a5ae0','#38a6d9','#8a6ae8','#3f8fe0'];
-    var hole1 = discMask(9, 9, 2.6), hole2 = discMask(9, 20, 2.6), hole3 = discMask(16, 9, 2.6);
-    function isHole(r,c){ var k = key(r,c); return hole1[k] || hole2[k] || hole3[k]; }
+    var pals = [ ['#c9a227','#d9b23a','#b8912a'],            // 左室 金
+                 ['#e86a4f','#e85a3a','#d94f35'],            // 中央室 焰红
+                 ['#38a6d9','#4fb8e8','#2f8fd0'] ];          // 右室 青蓝
+    function roomOf(c){ return c <= 14 ? 0 : (c <= 26 ? 1 : 2); }
     function isSteel(r,c){
-      if (r === 2 && c >= 2 && c <= 27) return true;
-      if ((c === 2 || c === 27) && r >= 3 && r <= 22) return true;
-      if (r === 22 && c >= 2 && c <= 27 && (c <= 10 || c >= 19)) return true;
-      if (r === 21 && c >= 2 && c <= 27 && (c <= 12 || c >= 17)) return true;
-      if ((c === 12 || c === 17) && (r === 19 || r === 20)) return true;
-      if (r === 23 && c >= 2 && c <= 27 && (c <= 9 || c >= 20)) return true;
-      if (r === 24 && c >= 2 && c <= 27 && (c <= 8 || c >= 21)) return true;
-      if (r === 25 && c >= 2 && c <= 27 && (c <= 7 || c >= 22)) return true;
+      if (r === 3 && c >= 3 && c <= 40) return true;                          // 顶墙（原行2）
+      if ((c === 3 || c === 40) && r >= 4 && r <= 35) return true;            // 左右墙（原列2/27）
+      if ((c === 15 || c === 27) && r >= 4 && r <= 34) return true;           // 两道隔墙（原列10/18），三室不连通
+      if ((c === 20 || c === 24) && (r === 32 || r === 33)) return true;      // 中央烟囱室内钢壁（原列13/16、行21-22）
+      if (r === 35 && c >= 3 && c <= 40 && !(c >= 6 && c <= 8) && !(c >= 21 && c <= 23) && !(c >= 36 && c <= 38)) return true;   // 底墙，三个入口各 3 格
+      if (r === 36 && c >= 3 && c <= 40 && !(c >= 5 && c <= 9) && !(c >= 21 && c <= 23) && !(c >= 34 && c <= 39)) return true;   // 漏斗层
+      if (r === 37 && c >= 3 && c <= 40 && !(c >= 3 && c <= 10) && !(c >= 21 && c <= 23) && !(c >= 33 && c <= 39)) return true;   // 底部缺口层
       return false;
     }
-    function isThroat(r,c){ return r >= 17 && c >= 13 && c <= 16; }
-    function isInner(r,c){ return r >= 3 && r <= 20 && c >= 3 && c <= 26; }
+    function isChimney(r,c){ return r >= 30 && c >= 21 && c <= 23; }         // 中央烟囱内通道，保持空
+    function isInner(r,c){ return r >= 4 && r <= 34 && c >= 4 && c <= 39; }
+    var armorRing = cellSet([[5,8],[5,9],[5,10],[6,7],[6,11],[7,7],[7,11],[8,7],[8,11],[9,8],[9,9],[9,10]]);
+    var fixed = { '30,7':'ball', '27,21':'ball', '30,36':'ball',
+                  '12,18':'bomb', '12,21':'bomb', '12,24':'bomb', '16,19':'bomb', '16,22':'bomb', '21,18':'bomb', '21,24':'bomb',
+                  '16,30':'beam', '16,31':'beam', '16,32':'beam', '16,33':'beam', '16,34':'beam', '16,35':'beam', '16,36':'beam',
+                  '14,33':'beam', '15,33':'beam', '18,33':'beam', '20,33':'beam' };
     for (var r=0;r<ROWS;r++){
       for (var c=0;c<COLS;c++){
         if (isSteel(r,c)){ putSteel(steels, r, c); continue; }
-        if (!isInner(r,c) || isThroat(r,c) || isHole(r,c)) continue;
-        if ((r === 6 && c === 8) || (r === 6 && c === 15) || (r === 6 && c === 21)){ putBrick(bricks, r, c, 'core', 1); continue; }
-        var fixed = { '16,14':'ball', '16,15':'ball', '12,8':'bomb', '12,21':'bomb', '9,14':'beam', '9,15':'beam' };
+        if (!isInner(r,c) || isChimney(r,c)) continue;
+        if ((r === 7 && c === 9) || (r === 7 && c === 21) || (r === 7 && c === 33)){ putBrick(bricks, r, c, 'core', 1); continue; }
+        if (armorRing[key(r,c)]){ putBrick(bricks, r, c, 'armor', 2); continue; }
         if (fixed[key(r,c)]){ putBrick(bricks, r, c, fixed[key(r,c)], 1); continue; }
-        var d = rollType(rnd, [[0.055,'ball'],[0.08,'bomb'],[0.09,'beam']]);
+        if (rnd() < 0.46) continue;   // 加密后定点抽稀，把砖量控制在约 550 块（三室结构不动）
+        var room = roomOf(c);
+        var table = (room === 0) ? [[0.06,'ball'],[0.09,'bomb'],[0.11,'beam'],[0.20,'armor',2]]
+                  : (room === 1) ? [[0.06,'ball'],[0.16,'bomb'],[0.19,'beam']]
+                  : [[0.06,'ball'],[0.10,'bomb'],[0.20,'beam']];
+        var d = rollType(rnd, table);
         var nb = putBrick(bricks, r, c, d.type, d.hp);
-        if (nb.type === 'normal'){
-          nb.color = ((r * 7 + c) % 13 === 0) ? '#c9a227' : pal[Math.floor((r + c) / 5) % pal.length];
-        }
+        if (nb.type === 'normal') nb.color = pals[room][Math.floor((r + c) / 5) % 3];
       }
     }
     var total = 0;
     bricks.forEach(function(b){ if (b.type !== 'core') total++; });
     return { bricks:bricks, steels:steels, total:total };
   }
+
+  /* ================= 61-100 关：海洋世界动物像素风（细格 40 列 × 34 行、格 9px） =================
+     砖块本身拼成动物像素图案：每关一种海洋动物，全部用下面的像素画布工具在细格上
+     画出轮廓与特征色，再按难度段配钢框：61-69 开放无钢框；71-79 底部钢条 + 两侧
+     局部钢框、缺口 4 格；81-89 完整钢框、缺口 3 格；91-99 完整钢框 + 珊瑚迷宫、
+     缺口 3 格，且入口正上方定点球砖、迷宫内有球砖与加宽砖；70/80/90/100 为要塞。
+     球半径、挡板、场地物理尺寸不变；每关砖量由构建器兜底在 400-800 块之间
+     （不足时补海底沙砖、过多时定点抽稀，动物轮廓不动）。 */
+  function ocSet(M,r,c,ch){
+    if (r < 0 || r >= 34 || c < 0 || c >= 40) return;
+    if (ch === null) delete M[key(r,c)]; else M[key(r,c)] = ch;
+  }
+  function ocE(M,cx,cy,rx,ry,ch){
+    for (var r=Math.floor(cy-ry); r<=Math.ceil(cy+ry); r++)
+      for (var c=Math.floor(cx-rx); c<=Math.ceil(cx+rx); c++){
+        var dr=(r-cy)/ry, dc=(c-cx)/rx;
+        if (dr*dr + dc*dc <= 1) ocSet(M,r,c,ch);
+      }
+  }
+  function ocP(M,pts,ch){
+    for (var r=0;r<34;r++) for (var c=0;c<40;c++){
+      var x=c, y=r, ins=false;
+      for (var i=0,j=pts.length-1;i<pts.length;j=i++){
+        var xi=pts[i][0], yi=pts[i][1], xj=pts[j][0], yj=pts[j][1];
+        if (((yi>y)!==(yj>y)) && (x<(xj-xi)*(y-yi)/(yj-yi)+xi)) ins=!ins;
+      }
+      if (ins) ocSet(M,r,c,ch);
+    }
+  }
+  function ocR(M,r0,r1,c0,c1,ch){ for (var r=r0;r<=r1;r++) for (var c=c0;c<=c1;c++) ocSet(M,r,c,ch); }
+  function ocS(M,r0,c0,r1,c1,w,ch){
+    var n = Math.max(Math.abs(r1-r0), Math.abs(c1-c0)) * 2;
+    for (var i=0;i<=n;i++) ocE(M, c0+(c1-c0)*i/n, r0+(r1-r0)*i/n, w, w, ch);
+  }
+  function ocW(M,c,r0,r1,amp,ph,ch,w){
+    for (var r=r0;r<=r1;r++){
+      var cc = c + Math.round(Math.sin((r-r0)*0.55 + ph) * amp);
+      ocE(M, cc, r, w || 0.8, w || 0.8, ch);
+    }
+  }
+  function ocStar(M,cx,cy,R,ri,ch){
+    var pts = [];
+    for (var k=0;k<10;k++){
+      var ang = -Math.PI/2 + k*Math.PI/5, rad = (k%2===0) ? R : ri;
+      pts.push([cx + Math.cos(ang)*rad, cy + Math.sin(ang)*rad]);
+    }
+    ocP(M, pts, ch);
+  }
+  function ocCols(M,cols,ch){ for (var k in M){ var c = +k.split(',')[1]; if (cols.indexOf(c) >= 0) M[k] = ch; } }
+  function ocRows(M,rows,ch){ for (var k in M){ var r = +k.split(',')[0]; if (rows.indexOf(r) >= 0) M[k] = ch; } }
+  function ocDot(M,r,c,ch){ if (M[key(r,c)]) M[key(r,c)] = ch; }
+
+  var OC_TABLES = {
+    A: [[0.10,'ball'],[0.13,'bomb'],[0.155,'beam'],[0.175,'widen'],[0.195,'armor',2]],
+    B: [[0.15,'armor',2],[0.19,'ball'],[0.225,'bomb'],[0.245,'beam'],[0.265,'widen']],
+    C: [[0.17,'armor',2],[0.20,'armor',3],[0.24,'ball'],[0.27,'bomb'],[0.29,'beam'],[0.305,'widen']],
+    D: [[0.18,'armor',3],[0.25,'armor',2],[0.30,'ball'],[0.345,'bomb'],[0.365,'beam'],[0.38,'widen']],
+    F: [[0.08,'ball'],[0.11,'bomb'],[0.13,'beam'],[0.16,'armor',2]]
+  };
+
+  function buildOcean(n){
+    var spec = OCEAN_SPECS[n];
+    setGrid(40, 34, 9, 8, 0, 75);
+    grid = blankGrid();
+    var bricks = [], steels = [];
+    var rnd = seeded(spec.seed);
+    var pal = spec.pal;
+    if (!pal.s) pal.s = '#c9a86a';
+    var M = {};
+    spec.paint(M);
+    var i, k, r, c;
+    // 要塞：先挖腔室，再放核心（核心格不被砖覆盖）
+    if (spec.carve) spec.carve.forEach(function(cv){ ocE(M, cv[0], cv[1], cv[2], cv[3], null); });
+    var coreSet = {};
+    if (spec.cores) spec.cores.forEach(function(cc){ coreSet[key(cc[0],cc[1])] = true; delete M[key(cc[0],cc[1])]; });
+    // 核心护卫圈：核心周围已画出的砖格改成装甲
+    var fixedMap = {};
+    if (spec.fixed) spec.fixed.forEach(function(f){ fixedMap[key(f[0],f[1])] = { type:f[2], hp:f[3]||1 }; });
+    if (spec.cores) spec.cores.forEach(function(cc){
+      for (var dr=-1;dr<=1;dr++) for (var dc=-1;dc<=1;dc++){
+        if (!dr && !dc) continue;
+        var nk = key(cc[0]+dr, cc[1]+dc);
+        if (M[nk]) fixedMap[nk] = { type:'armor', hp:2 };
+      }
+    });
+    // 砖量兜底：不足 445 时从最底行起补海底沙砖（避开缺口列与钢框列），过多时定点抽稀
+    // 钢框（按难度段）： steels 覆盖同格砖
+    var steelSet = {};
+    function addSteel(rr,cc){ steelSet[key(rr,cc)] = true; }
+    var gapsList = spec.gapsList || (spec.gap ? [spec.gap] : []);
+    function bottomBar(){
+      for (var bc=2; bc<=37; bc++){
+        var inGap = false;
+        gapsList.forEach(function(g){ if (bc >= g[0] && bc <= g[1]) inGap = true; });
+        if (!inGap) addSteel(33, bc);
+      }
+    }
+    if (spec.frame === 'partial'){
+      bottomBar();
+      for (var pr=26; pr<=32; pr++){ addSteel(pr, 2); addSteel(pr, 37); }
+    } else if (spec.frame === 'full' || spec.frame === 'maze' || spec.frame === 'fort'){
+      for (var tc=2; tc<=37; tc++) addSteel(1, tc);
+      for (var sr=2; sr<=32; sr++){ addSteel(sr, 2); addSteel(sr, 37); }
+      bottomBar();
+    }
+    if (spec.frame === 'maze' && spec.gap){
+      var gc0 = spec.gap[0], gc1 = spec.gap[1], gcen = Math.round((gc0+gc1)/2);
+      for (var m1=4; m1<=35; m1++){ if (m1 < gcen-2 || m1 > gcen+2) addSteel(27, m1); }
+      for (var m2=gcen-6; m2<=gcen+6; m2++){ if (m2 < gcen-1 || m2 > gcen+1) addSteel(30, m2); }
+      for (var m3=28; m3<=29; m3++){
+        if (gcen-8 >= 4) addSteel(m3, gcen-8);
+        if (gcen+8 <= 35) addSteel(m3, gcen+8);
+      }
+      fixedMap[key(32, gcen)] = { type:'ball', hp:1 };          // 入口正上方定点球砖
+      fixedMap[key(28, 7)] = { type:'ball', hp:1 };              // 迷宫口袋里的球砖与加宽砖
+      fixedMap[key(28, 32)] = { type:'ball', hp:1 };
+      fixedMap[key(25, gcen)] = { type:'widen', hp:1 };
+    }
+    if (spec.frameSteels) spec.frameSteels.forEach(function(fs){ addSteel(fs[0], fs[1]); });
+    for (k in steelSet){ delete M[k]; delete fixedMap[k]; }
+    var cells = Object.keys(M);
+    if (spec.seabed !== false && cells.length < 410){
+      var gapCols = {};
+      (spec.gapsList || [spec.gap]).forEach(function(g){ if (g) for (var gc=g[0]; gc<=g[1]; gc++) gapCols[gc] = true; });
+      var bedRows = spec.frame === 'maze' ? [32,31,29,28,26,25,24,23] : (spec.frame === 'none' ? [33,32,31,30,29,28] : [32,31,30,29,28]);
+      for (var bi=0; bi<bedRows.length && cells.length < 420; bi++){
+        for (var bc=3; bc<=36 && cells.length < 420; bc++){
+          var bk = key(bedRows[bi], bc);
+          if (!M[bk] && !gapCols[bc] && !steelSet[bk]){ M[bk] = 's'; cells.push(bk); }
+        }
+      }
+    }
+    if (cells.length > 790){
+      for (var si=cells.length-1; si>0; si--){ var sj = Math.floor(rnd()*(si+1)); var stmp = cells[si]; cells[si]=cells[sj]; cells[sj]=stmp; }
+      var keep = {};
+      cells.slice(0, 780).forEach(function(ck){ keep[ck] = true; });
+      for (k in M) if (!keep[k] && !fixedMap[k]) delete M[k];
+    }
+    // 放钢
+    for (k in steelSet){ var sp = k.split(','); putSteel(steels, +sp[0], +sp[1]); }
+    // 放砖
+    for (k in M){
+      var bp = k.split(','), br2 = +bp[0], bc2 = +bp[1];
+      var fx = fixedMap[k];
+      var d = fx ? { type:fx.type, hp:fx.hp } : rollType(rnd, OC_TABLES[spec.tier]);
+      var nb = putBrick(bricks, br2, bc2, d.type, d.hp);
+      nb.color = pal[M[k]] || pal.a;
+    }
+    // fixed 里不在图案内的格子（迷宫口袋、要塞通道口的定点砖）单独放
+    for (k in fixedMap){
+      if (M[k] || steelSet[k] || coreSet[k]) continue;
+      var fp = k.split(','), fd = fixedMap[k];
+      var fb = putBrick(bricks, +fp[0], +fp[1], fd.type, fd.hp);
+      fb.color = pal.a;
+    }
+    // 放核心
+    if (spec.cores) spec.cores.forEach(function(cc){ putBrick(bricks, cc[0], cc[1], 'core', 1); });
+    var total = 0;
+    bricks.forEach(function(b){ if (b.type !== 'core') total++; });
+    return { bricks:bricks, steels:steels, total:total };
+  }
+  function mkOcean(n){ return function(){ return buildOcean(n); }; }
+
+  /* ---- 61-100 关动物图案定义（paint 在 40×34 细格画布上作画，字符经 pal 取色） ---- */
+  var OCEAN_SPECS = {
+    61: { seed:20261161, tier:'A', frame:'none', pal:{a:'#ff7d1c',b:'#ff9d45',w:'#ffffff'},
+      paint:function(M){
+        ocP(M,[[28,15],[36,8],[36,22]],'a');
+        ocE(M,17,15,13,8,'a');
+        ocE(M,17,7,6,2,'b');
+        ocCols(M,[12,13],'w'); ocCols(M,[21,22],'w');
+        ocSet(M,13,10,null); ocSet(M,14,10,null);
+      },
+      fixed:[[17,17,'ball'],[12,24,'ball'],[20,12,'widen']] },
+    62: { seed:20261162, tier:'A', frame:'none', pal:{a:'#b04a8a',b:'#e06aa8'},
+      paint:function(M){
+        ocStar(M,19,16,15,8.5,'a');
+        ocE(M,19,16,3,3,'b');
+        ocE(M,19,6,1.4,1.4,'b'); ocE(M,28,12,1.4,1.4,'b'); ocE(M,26,24,1.4,1.4,'b');
+        ocE(M,12,24,1.4,1.4,'b'); ocE(M,10,12,1.4,1.4,'b');
+      },
+      fixed:[[16,19,'ball'],[10,19,'ball']] },
+    63: { seed:20261163, tier:'A', frame:'none', pal:{a:'#c9a7eb',b:'#9f7fe0',c:'#f2d8ff'},
+      paint:function(M){
+        ocE(M,19,11,15,10,'a');
+        for (var r=12;r<=21;r++) for (var c=4;c<=34;c++) ocSet(M,r,c,null);
+        ocE(M,15,8,2.2,1.6,'b'); ocE(M,24,7,2.2,1.6,'b'); ocE(M,19,10,2.6,1.8,'c');
+        [9,13,17,21,25,29].forEach(function(cc,ix){ ocW(M,cc,13,29,1.6,ix*1.3,'b',0.9); });
+        ocW(M,19,13,25,2.4,0,'a',1.5);
+      },
+      fixed:[[9,19,'ball'],[20,13,'ball']] },
+    64: { seed:20261164, tier:'A', frame:'none', pal:{a:'#f2b134',b:'#e07b39'},
+      paint:function(M){
+        ocE(M,20,17,7,10,'a');
+        ocE(M,25,8,4.5,3.5,'a');
+        ocR(M,7,9,29,33,'a');
+        ocRows(M,[14,15,19,20,23],'b');
+        ocP(M,[[14,12],[8,16],[14,20]],'b');
+        ocE(M,13,26,4.5,4.5,'a'); ocE(M,13,26,2,2,null);
+        ocR(M,4,5,23,27,'b');
+        ocSet(M,8,27,null);
+      },
+      fixed:[[17,20,'ball'],[24,15,'widen']] },
+    65: { seed:20261165, tier:'A', frame:'none', pal:{a:'#e2483d',b:'#b82e26',d:'#401512'},
+      paint:function(M){
+        ocE(M,19,16,13,7,'a');
+        ocE(M,5,9,4,4,'b'); ocE(M,33,9,4,4,'b');
+        ocS(M,13,12,8,10,1.2,'a'); ocS(M,25,12,30,10,1.2,'a');
+        ocS(M,19,10,9,8,0.9,'a'); ocS(M,19,26,9,8,0.9,'a');
+        ocS(M,21,10,11,8,0.9,'a'); ocS(M,21,28,11,30,0.9,'a');
+        ocS(M,22,12,7,6,0.9,'a'); ocS(M,22,26,31,32,0.9,'a');
+        ocE(M,16,10,1.2,1.2,'d'); ocE(M,22,10,1.2,1.2,'d');
+        ocCols(M,[19],'b');
+      },
+      fixed:[[16,19,'ball'],[14,12,'ball'],[14,26,'widen']] },
+    66: { seed:20261166, tier:'A', frame:'none', pal:{a:'#3f9e4d',b:'#7bc47f'},
+      paint:function(M){
+        ocE(M,18,15,13,9,'a');
+        ocE(M,18,15,9,6,'b'); ocE(M,18,15,4,3,'a');
+        ocE(M,34,15,3,3.5,'b');
+        ocE(M,8,6,3,2,'b'); ocE(M,28,6,3,2,'b'); ocE(M,8,24,3,2,'b'); ocE(M,28,24,3,2,'b');
+        ocSet(M,15,35,null);
+      },
+      fixed:[[15,18,'ball'],[10,12,'ball'],[20,24,'widen']] },
+    67: { seed:20261167, tier:'A', frame:'none', pal:{a:'#8a5ae8',b:'#6a3fd0'},
+      paint:function(M){
+        ocE(M,19,12,10,8,'a');
+        ocE(M,14,9,1.6,1.2,'b'); ocE(M,24,10,1.6,1.2,'b');
+        [9,13,17,21,25,29].forEach(function(cc,ix){ ocW(M,cc,19,29,1.4,ix,'a',1.1); ocE(M,cc,30,1.2,1,'b'); });
+        ocSet(M,14,15,null); ocSet(M,14,23,null);
+        ocRows(M,[17],'b');
+      },
+      fixed:[[12,19,'ball'],[24,17,'ball']] },
+    68: { seed:20261168, tier:'A', frame:'none', pal:{a:'#5aa7d6',b:'#3d7fb8',w:'#eaf6ff'},
+      paint:function(M){
+        ocP(M,[[8,16],[13,10],[26,9],[33,13],[37,16],[33,20],[25,22],[13,21]],'a');
+        ocE(M,19,18,11,3,'w');
+        ocP(M,[[32,15],[38,10],[38,21]],'b');
+        ocP(M,[[18,11],[22,5],[24,11]],'b');
+        ocP(M,[[14,19],[17,25],[20,19]],'b');
+        ocSet(M,14,12,null);
+      },
+      fixed:[[15,20,'ball'],[17,28,'widen']] },
+    69: { seed:20261169, tier:'A', frame:'none', pal:{a:'#7d8fa3',b:'#5a6d80',w:'#eef3f6',d:'#33424e'},
+      paint:function(M){
+        ocE(M,18,15,14,6,'a');
+        ocE(M,18,18,12,3,'w');
+        ocP(M,[[31,15],[38,8],[38,22]],'a');
+        ocP(M,[[16,10],[21,4],[24,10]],'b');
+        ocP(M,[[12,19],[15,25],[18,19]],'b');
+        ocR(M,18,19,3,5,'w');
+        ocS(M,12,10,18,10,0.6,'d');
+        ocSet(M,13,7,null);
+      },
+      fixed:[[15,16,'ball'],[13,26,'ball']] },
+    70: { seed:20261170, tier:'F', frame:'fort', gapsList:[[16,21]], pal:{a:'#4a7fb5',b:'#35618f',w:'#dceefb'},
+      paint:function(M){
+        ocP(M,[[31,14],[36,9],[36,19]],'a');
+        ocE(M,17,14,15,11,'a');
+        ocE(M,17,20,11,4,'w');
+        ocP(M,[[12,24],[16,29],[19,24]],'b');
+        ocSet(M,11,7,null);
+      },
+      carve:[[17,17,8,4.5]],
+      cores:[[15,11],[15,23]], servesNote:true,
+      frameSteels:(function(){ var s=[]; for (var c=10;c<=24;c++){ if (c<16||c>19) s.push([22,c]); } for (var c=15;c<=22;c++){ if (c<16||c>21) s.push([32,c]); } return s; })(),
+      fixed:[[8,17,'ball'],[18,28,'ball']] },
+    71: { seed:20261171, tier:'B', frame:'partial', gap:[17,20], pal:{a:'#8d99a6',b:'#6e7a86'},
+      paint:function(M){
+        ocE(M,17,18,13,6,'a');
+        ocE(M,27,16,5,4,'a');
+        ocE(M,31,13,4.5,4,'a');
+        ocP(M,[[6,18],[1,13],[2,23]],'b');
+        ocE(M,24,23,4,2,'b');
+        ocE(M,14,15,1.3,1,'b'); ocE(M,20,20,1.3,1,'b'); ocE(M,11,19,1.3,1,'b');
+        ocSet(M,13,32,null);
+      },
+      fixed:[[16,15,'ball'],[18,24,'bomb']] },
+    72: { seed:20261172, tier:'B', frame:'partial', gap:[8,11], pal:{a:'#3fa7c4',b:'#7fd4e8',w:'#eafcff'},
+      paint:function(M){
+        ocE(M,18,16,14,4.5,'a');
+        ocE(M,18,18,12,2,'w');
+        ocP(M,[[12,13],[20,4],[26,13]],'b');
+        ocP(M,[[12,19],[20,28],[26,19]],'b');
+        ocP(M,[[31,16],[38,11],[38,21]],'a');
+        ocSet(M,15,9,null);
+      },
+      fixed:[[16,18,'ball'],[10,20,'beam']] },
+    73: { seed:20261173, tier:'B', frame:'partial', gap:[24,27], pal:{a:'#3f7fbf',b:'#2c5d99',c:'#ffe066'},
+      paint:function(M){
+        var px=0, py=0;
+        for (var i=0;i<=44;i++){
+          var t=i/44, cx=5+t*29, cy=17+Math.sin(t*Math.PI*1.7)*6.5;
+          ocE(M,cx,cy,3.1,3.1,'a');
+          if (i%5===2) ocE(M,cx,cy-3.4,0.9,0.9,'c');
+          if (i%4===1) ocDot(M,Math.round(cy)+2,Math.round(cx),'b');
+          px=cx; py=cy;
+        }
+        ocE(M,px+1,py,3.6,2.8,'a');
+        ocDot(M,Math.round(py),Math.round(px)+2,'c');
+      },
+      fixed:[[17,19,'ball'],[11,12,'bomb']] },
+    74: { seed:20261174, tier:'B', frame:'partial', gap:[17,20], pal:{a:'#c7512f',b:'#9e3a20',d:'#571f0e'},
+      paint:function(M){
+        ocP(M,[[4,16],[9,11],[9,21]],'b');
+        ocE(M,13,16,5,4.6,'a'); ocE(M,18,16,4.6,4.2,'a'); ocE(M,23,16,4.2,3.8,'a'); ocE(M,27,16,3.8,3.4,'a');
+        ocCols(M,[15,20,25],'b');
+        ocE(M,34,10,4.5,3.5,'b'); ocE(M,34,22,4.5,3.5,'b');
+        ocS(M,14,29,11,32,1.3,'a'); ocS(M,21,29,22,32,1.3,'a');
+        ocS(M,13,31,6,37,0.5,'d'); ocS(M,19,31,26,37,0.5,'d');
+        ocS(M,20,12,25,9,0.8,'a'); ocS(M,20,27,25,30,0.8,'a');
+      },
+      fixed:[[16,18,'ball'],[16,27,'widen']] },
+    75: { seed:20261175, tier:'B', frame:'partial', gap:[10,13], pal:{a:'#e8c832',d:'#2b2b26',w:'#f7ecc8'},
+      paint:function(M){
+        var px=0, py=0;
+        for (var i=0;i<=46;i++){
+          var t=i/46, cx=5+t*29, cy=16+Math.sin(t*Math.PI*2.1+0.6)*6;
+          ocE(M,cx,cy,3,3, (Math.floor(t*9)%2===0) ? 'a' : 'd');
+          px=cx; py=cy;
+        }
+        ocE(M,px+1,py,3.8,3,'a');
+        ocSet(M,Math.round(py),Math.round(px)+2,null);
+      },
+      fixed:[[12,20,'ball'],[21,14,'bomb']] },
+    76: { seed:20261176, tier:'B', frame:'partial', gap:[24,27], pal:{a:'#5a6e8c',b:'#43536b',w:'#dfe9f5',d:'#2c3644'},
+      paint:function(M){
+        ocE(M,18,15,16,9,'a');
+        ocP(M,[[33,15],[39,9],[39,21]],'a');
+        ocP(M,[[17,7],[21,3],[24,7]],'b');
+        ocP(M,[[11,21],[14,27],[18,21]],'b');
+        for (var r=9;r<=21;r+=3) for (var c=8;c<=28;c+=3) ocDot(M,r,c,'w');
+        ocS(M,12,4,18,4,0.7,'d');
+        ocSet(M,13,6,null);
+      },
+      fixed:[[15,18,'ball'],[12,24,'beam']] },
+    77: { seed:20261177, tier:'B', frame:'partial', gap:[6,9], pal:{a:'#4a4a68',b:'#34344c',w:'#cfd4e6',d:'#23233a'},
+      paint:function(M){
+        ocP(M,[[2,15],[19,5],[38,15],[19,25]],'a');
+        ocE(M,19,18,10,4,'w');
+        ocE(M,5,12,2,1.5,'b'); ocE(M,5,18,2,1.5,'b');
+        ocS(M,25,19,33,19,0.6,'d');
+        [[11,12],[15,10],[23,10],[27,12],[13,19],[25,19],[19,14]].forEach(function(p){ ocDot(M,p[0],p[1],'w'); });
+      },
+      fixed:[[15,19,'ball'],[12,15,'bomb']] },
+    78: { seed:20261178, tier:'B', frame:'partial', gap:[17,20], pal:{a:'#ff8c42',c:'#f06ab8',w:'#ffffff',b:'#d96a24'},
+      paint:function(M){
+        ocE(M,19,27,12,3,'c');
+        for (var cc=9; cc<=29; cc+=2) ocW(M,cc,16,26,1,cc,'c',1);
+        ocE(M,19,11,8,4.5,'a');
+        ocP(M,[[26,11],[31,8],[31,14]],'a');
+        ocCols(M,[16,17],'w');
+        ocE(M,19,6,4,1.6,'b');
+        ocSet(M,11,13,null);
+      },
+      fixed:[[11,19,'ball'],[21,19,'ball']] },
+    79: { seed:20261179, tier:'B', frame:'partial', gap:[28,31], pal:{a:'#d94f30',b:'#a83a22',c:'#ff8a5c',d:'#401512'},
+      paint:function(M){
+        ocS(M,28,8,16,6,1,'c'); ocS(M,16,6,12,3,0.8,'c'); ocS(M,16,6,11,10,0.8,'c');
+        ocS(M,28,31,15,33,1,'c'); ocS(M,15,33,10,30,0.8,'c'); ocS(M,15,33,11,36,0.8,'c');
+        ocS(M,28,19,18,19,0.9,'c');
+        ocE(M,19,20,11,5.5,'a');
+        ocE(M,7,14,3.5,3.5,'b'); ocE(M,31,14,3.5,3.5,'b');
+        ocS(M,24,10,16,8,0.9,'a'); ocS(M,24,28,16,30,0.9,'a');
+        ocE(M,16,15,1.1,1.1,'d'); ocE(M,22,15,1.1,1.1,'d');
+      },
+      fixed:[[20,19,'ball'],[18,13,'bomb']] },
+    80: { seed:20261180, tier:'F', frame:'fort', gapsList:[[7,10],[23,26]], pal:{a:'#607d94',b:'#47606f',w:'#eef3f6',d:'#33424e'},
+      paint:function(M){
+        ocE(M,18,14,16,9,'a');
+        ocE(M,18,18,13,4,'w');
+        ocP(M,[[33,14],[39,8],[39,20]],'a');
+        ocP(M,[[16,6],[21,1],[24,6]],'b');
+        ocP(M,[[11,21],[14,27],[18,21]],'b');
+        ocR(M,19,20,3,5,'w');
+        ocSet(M,12,6,null);
+      },
+      carve:[[10,14,4,3],[25,16,5,3.5]],
+      cores:[[14,10],[16,25]],
+      frameSteels:(function(){ var s=[]; for (var r=5;r<=22;r++) s.push([r,17]); for (var c=6;c<=11;c++){ if (c<7||c>10) s.push([32,c]); } for (var c=22;c<=27;c++){ if (c<23||c>26) s.push([32,c]); } return s; })(),
+      fixed:[[9,22,'ball'],[20,14,'bomb']] },
+    81: { seed:20261181, tier:'C', frame:'full', gap:[17,19], pal:{a:'#7a6a58',b:'#5d5041'},
+      paint:function(M){
+        ocP(M,[[6,22],[10,12],[24,9],[33,13],[34,20],[28,25],[12,26]],'a');
+        ocE(M,33,10,4,3.6,'a'); ocE(M,36,11,2,1.6,'b');
+        ocS(M,22,26,29,30,1.6,'b');
+        ocP(M,[[6,22],[1,27],[8,28]],'b');
+        ocE(M,16,15,1.4,1,'b'); ocE(M,22,18,1.4,1,'b');
+        ocSet(M,10,34,null);
+      },
+      fixed:[[16,20,'ball'],[13,26,'bomb']] },
+    82: { seed:20261182, tier:'C', frame:'full', gap:[8,10], pal:{a:'#3d6fb8',b:'#2c528c',w:'#dcebfb'},
+      paint:function(M){
+        ocE(M,15,16,12,5,'a');
+        ocE(M,15,18,10,2.5,'w');
+        ocR(M,15,16,27,38,'b');
+        ocP(M,[[12,12],[16,4],[20,12]],'b');
+        ocP(M,[[5,16],[1,9],[1,23]],'a');
+        ocP(M,[[10,20],[13,26],[16,20]],'b');
+        ocSet(M,15,8,null);
+      },
+      fixed:[[16,15,'ball'],[12,18,'beam']] },
+    83: { seed:20261183, tier:'C', frame:'full', gap:[24,26], pal:{a:'#c45a7d',b:'#a03d63'},
+      paint:function(M){
+        ocP(M,[[19,2],[26,8],[25,16],[13,16],[12,8]],'a');
+        ocE(M,19,17,6,3.5,'a');
+        for (var cc=11; cc<=27; cc+=2.3) ocW(M,Math.round(cc),20,32,1.2,cc,'a',0.95);
+        ocP(M,[[13,8],[7,12],[13,14]],'b'); ocP(M,[[25,8],[31,12],[25,14]],'b');
+        ocE(M,15,17,1.3,1.3,null); ocE(M,23,17,1.3,1.3,null);
+        ocCols(M,[19],'b');
+      },
+      fixed:[[12,19,'ball'],[24,24,'ball']] },
+    84: { seed:20261184, tier:'C', frame:'full', gap:[17,19], pal:{a:'#4a3560',b:'#6a4a8a',d:'#2e2438'},
+      paint:function(M){
+        for (var k2=0;k2<16;k2++){
+          var ang=k2*Math.PI/8;
+          ocS(M, 17+Math.sin(ang)*5, 19+Math.cos(ang)*5, 17+Math.sin(ang)*12.5, 19+Math.cos(ang)*12.5, 0.55,'d');
+        }
+        ocE(M,19,17,8,8,'d');
+        ocE(M,19,17,5,5,'a');
+        ocE(M,19,17,2.4,2.4,'b');
+      },
+      fixed:[[17,19,'ball'],[10,26,'bomb']] },
+    85: { seed:20261185, tier:'C', frame:'full', gap:[10,12], pal:{d:'#1f3350',b:'#3f6fb8',c:'#ffd94a',a:'#2c4a70'},
+      paint:function(M){
+        ocE(M,18,17,12,7,'d');
+        ocP(M,[[7,17],[2,12],[2,22]],'d');
+        ocP(M,[[14,11],[18,6],[21,11]],'b');
+        ocS(M,11,24,6,28,0.6,'b');
+        ocE(M,29,5,2.2,2.2,'c');
+        for (var cc=10; cc<=26; cc+=3) ocDot(M,22,cc,'c');
+        ocDot(M,15,24,'c'); ocDot(M,19,12,'b'); ocDot(M,13,20,'b');
+      },
+      fixed:[[17,16,'ball'],[20,22,'beam']] },
+    86: { seed:20261186, tier:'C', frame:'full', gap:[24,26], pal:{a:'#5aa85e',b:'#8fd07a',c:'#3f7f4d'},
+      paint:function(M){
+        var px=0, py=0;
+        for (var i=0;i<=46;i++){
+          var t=i/46, cx=5+t*28, cy=17+Math.sin(t*Math.PI*1.8+0.4)*6;
+          ocE(M,cx,cy,2.7,2.7,'a');
+          if (i%4===2){ ocE(M,cx+1.5,cy-3,1.7,1.7,'b'); ocE(M,cx-1.5,cy+3,1.7,1.7,'b'); }
+          px=cx; py=cy;
+        }
+        ocE(M,px+1,py,3.6,3,'a');
+        ocR(M,Math.round(py)-1,Math.round(py),Math.round(px)+3,Math.round(px)+5,'a');
+        ocE(M,8,26,3.6,3.6,'c'); ocE(M,8,26,1.8,1.8,null);
+      },
+      fixed:[[14,18,'ball'],[20,12,'widen']] },
+    87: { seed:20261187, tier:'C', frame:'full', gap:[17,19], pal:{d:'#23272e',w:'#f2f5f7',b:'#3a4048',a:'#2c3138'},
+      paint:function(M){
+        ocE(M,18,15,15,7.5,'d');
+        ocE(M,18,18,12,4,'w');
+        ocE(M,27,12,2.5,1.4,'w');
+        ocP(M,[[17,9],[21,3],[24,9]],'d');
+        ocP(M,[[32,15],[38,10],[38,20]],'d');
+        ocP(M,[[12,20],[15,26],[18,20]],'d');
+        ocSet(M,13,26,null);
+      },
+      fixed:[[15,16,'ball'],[11,22,'bomb']] },
+    88: { seed:20261188, tier:'C', frame:'full', gap:[8,10], pal:{a:'#b85a78',b:'#96455f'},
+      paint:function(M){
+        ocE(M,19,16,14,6,'a');
+        ocR(M,22,23,8,31,'b');
+        for (var r=13;r<=19;r+=3) for (var c=10;c<=28;c+=3) ocDot(M,r,c,'b');
+        ocCols(M,[7,32],'b');
+        ocRows(M,[12,20],'b');
+      },
+      fixed:[[16,19,'ball'],[15,13,'beam']] },
+    89: { seed:20261189, tier:'C', frame:'full', gap:[24,26], pal:{a:'#6a5a8c',b:'#4f4270',w:'#e3dcf2',d:'#38304e'},
+      paint:function(M){
+        ocP(M,[[1,15],[19,6],[39,15],[19,24]],'a');
+        ocE(M,19,16,10,3,'w');
+        ocE(M,4,13,1.8,1.8,'b'); ocE(M,4,17,1.8,1.8,'b');
+        ocS(M,24,19,32,19,0.6,'d');
+        [[11,12],[16,10],[22,10],[27,12],[13,18],[25,18],[19,20]].forEach(function(p){ ocDot(M,p[0],p[1],'w'); });
+      },
+      fixed:[[15,19,'ball'],[11,15,'bomb']] },
+    90: { seed:20261190, tier:'F', frame:'fort', gapsList:[[6,9],[17,20],[28,31]], pal:{a:'#7a4fd0',b:'#5a34a8',c:'#b48af2'},
+      paint:function(M){
+        ocE(M,19,12,14,10,'a');
+        ocE(M,14,8,1.8,1.3,'c'); ocE(M,24,9,1.8,1.3,'c');
+        [8,12,16,20,24,28].forEach(function(cc,ix){ ocW(M,cc,20,30,1.3,ix*1.1,'a',1.2); ocE(M,cc,31,1.2,1,'b'); });
+        ocSet(M,14,14,null); ocSet(M,14,24,null);
+      },
+      carve:[[19,13,8,5]],
+      cores:[[11,14],[11,24]],
+      frameSteels:(function(){ var s=[]; [10,16,22,27].forEach(function(cc){ for (var r=30;r<=32;r++) s.push([r,cc]); }); return s; })(),
+      fixed:[[7,19,'ball'],[26,19,'bomb']] },
+    91: { seed:20261191, tier:'D', frame:'maze', gap:[17,19], pal:{a:'#44586e',b:'#2f4152',w:'#dfe7ee',d:'#1e2a36'},
+      paint:function(M){
+        ocE(M,18,14,16,8,'a');
+        ocE(M,18,18,13,4,'w');
+        ocP(M,[[33,14],[39,6],[39,22]],'a');
+        ocP(M,[[15,7],[20,1],[24,7]],'b');
+        ocP(M,[[25,6],[29,3],[30,7]],'b');
+        ocR(M,20,21,3,6,'w');
+        ocS(M,11,12,13,16,0.5,'w');
+        ocSet(M,12,8,null);
+      },
+      fixed:[[14,20,'ball'],[10,28,'bomb']] },
+    92: { seed:20261192, tier:'D', frame:'maze', gap:[8,10], pal:{a:'#a86ae0',b:'#7d3fc4',c:'#e8ccff'},
+      paint:function(M){
+        ocE(M,19,11,16,10,'a');
+        for (var r=12;r<=21;r++) for (var c=3;c<=35;c++) if (Math.abs(c-19) > 16-Math.abs(r-11)) ocSet(M,r,c,null);
+        for (var r2=12;r2<=20;r2++) for (var c2=4;c2<=34;c2++){ var dd=(r2-11)/10, ee=(c2-19)/16; if (dd*dd+ee*ee>1) ocSet(M,r2,c2,null); }
+        ocE(M,19,12,11,3,'b'); ocE(M,19,12,6,2,'a');
+        for (var r3=13;r3<=14;r3++) for (var c3=4;c3<=34;c3++) ocSet(M,r3,c3,null);
+        [7,11,15,19,23,27,31].forEach(function(cc,ix){ ocW(M,cc,14,31,1.8,ix*1.2,'b',1.2); });
+        [13,19,25].forEach(function(cc,ix){ ocW(M,cc,14,26,2.4,ix,'a',1.7); });
+        ocE(M,15,9,2.2,1.6,'c'); ocE(M,24,8,2.2,1.6,'c');
+      },
+      fixed:[[9,19,'ball'],[22,16,'ball']] },
+    93: { seed:20261193, tier:'D', frame:'maze', gap:[24,26], pal:{a:'#5d7052',b:'#42523a',c:'#ffe066',w:'#f5f2e4'},
+      paint:function(M){
+        ocE(M,16,15,13,10,'a');
+        ocE(M,16,22,9,3,'b');
+        ocE(M,8,18,7,5,null);
+        ocR(M,12,13,4,10,'w'); ocR(M,22,23,4,9,'w');
+        ocP(M,[[26,10],[36,14],[36,18],[26,20]],'a');
+        ocP(M,[[35,14],[39,10],[39,20]],'b');
+        ocS(M,6,10,3,14,0.5,'b');
+        ocE(M,15,3,1.8,1.8,'c');
+        ocSet(M,15,11,null);
+      },
+      fixed:[[16,20,'ball'],[9,24,'beam']] },
+    94: { seed:20261194, tier:'D', frame:'maze', gap:[17,19], pal:{a:'#3fae8a',b:'#2c8567',c:'#ff8a5c'},
+      paint:function(M){
+        var px=0, py=0;
+        for (var i=0;i<=42;i++){
+          var t=i/42, cx=6+t*22, cy=20-Math.sin(t*Math.PI*1.15)*9+t*2;
+          ocE(M,cx,cy,3.1,3.1,'a');
+          if (i%5===3) ocE(M,cx,cy-3.4,1.5,1.5,'c');
+          px=cx; py=cy;
+        }
+        ocE(M,31,9,5,4,'a');
+        ocS(M,6,30,3,34,0.6,'c'); ocS(M,3,34,1,36,0.5,'c'); ocS(M,6,28,4,24,0.6,'c');
+        ocP(M,[[27,12],[31,17],[34,11]],'c');
+        ocS(M,16,10,13,7,1,'b'); ocS(M,17,24,14,28,1,'b');
+        ocSet(M,9,33,null);
+      },
+      fixed:[[15,17,'ball'],[20,24,'bomb']] },
+    95: { seed:20261195, tier:'D', frame:'maze', gap:[8,10], pal:{w:'#e9e4f5',b:'#b8a8dd',d:'#4a4260',a:'#d9d0ee'},
+      paint:function(M){
+        ocE(M,19,14,11,9,'w');
+        ocE(M,7,10,3.5,4.5,'w'); ocE(M,31,10,3.5,4.5,'w');
+        ocP(M,[[10,20],[28,20],[24,29],[14,29]],'w');
+        ocE(M,15,15,1.2,1.2,'d'); ocE(M,23,15,1.2,1.2,'d');
+        ocDot(M,18,13,'b'); ocDot(M,18,25,'b'); ocDot(M,11,19,'b');
+        ocRows(M,[21],'a');
+      },
+      fixed:[[13,19,'ball'],[24,19,'ball']] },
+    96: { seed:20261196, tier:'D', frame:'maze', gap:[24,26], pal:{a:'#a83232',b:'#7d2424',c:'#d9a441',d:'#380f0f'},
+      paint:function(M){
+        ocE(M,19,17,15,8,'a');
+        ocR(M,7,8,9,29,'c');
+        ocE(M,4,11,4.5,4,'b'); ocE(M,34,11,4.5,4,'b');
+        ocS(M,14,7,11,5,1.2,'a'); ocS(M,14,31,11,33,1.2,'a');
+        ocS(M,21,6,27,2,1.1,'a'); ocS(M,21,32,27,36,1.1,'a');
+        ocS(M,23,9,29,5,1.1,'a'); ocS(M,23,29,29,33,1.1,'a');
+        ocS(M,24,13,30,9,1.1,'a'); ocS(M,24,25,30,29,1.1,'a');
+        ocE(M,16,12,1.2,1.2,'d'); ocE(M,22,12,1.2,1.2,'d');
+        ocCols(M,[19],'b');
+      },
+      fixed:[[17,19,'ball'],[14,14,'bomb']] },
+    97: { seed:20261197, tier:'D', frame:'maze', gap:[17,19], pal:{a:'#2e6e4e',b:'#57a773',d:'#1f4d36'},
+      paint:function(M){
+        ocE(M,18,16,14,10,'a');
+        ocE(M,18,16,11,7.5,'d'); ocE(M,18,16,7,5,'a'); ocE(M,18,16,3,2.4,'b');
+        ocS(M,16,29,16,34,2,'b');
+        ocE(M,36,16,2.8,3,'b');
+        ocE(M,7,7,4,2.5,'b'); ocE(M,29,7,4,2.5,'b'); ocE(M,7,25,4,2.5,'b'); ocE(M,29,25,4,2.5,'b');
+        ocSet(M,16,37,null);
+      },
+      fixed:[[16,18,'ball'],[10,11,'beam']] },
+    98: { seed:20261198, tier:'D', frame:'maze', gap:[10,12], pal:{a:'#f2a03d',b:'#4fb8d9',c:'#e86a8a',w:'#e8e2d2'},
+      paint:function(M){
+        ocR(M,30,31,5,34,'w');
+        [8,14,20,26].forEach(function(cc){ ocS(M,30,cc,24,cc,0.9,'w'); });
+        ocE(M,35,28,4.5,3.4,'w');
+        var fish=[[7,8,'a'],[16,6,'b'],[25,9,'c'],[32,7,'a'],[11,14,'c'],[21,15,'a'],[30,16,'b'],[6,20,'b'],[15,22,'a'],[26,23,'c'],[34,20,'a'],[19,11,'b']];
+        fish.forEach(function(f){
+          ocE(M,f[1],f[0],2.8,1.5,f[2]);
+          ocP(M,[[f[1]+2,f[0]],[f[1]+4.4,f[0]-1.6],[f[1]+4.4,f[0]+1.6]],f[2]);
+        });
+        ocE(M,12,28,5,3,'c'); ocE(M,31,29,5,3,'c');
+      },
+      fixed:[[12,18,'ball'],[18,26,'widen']] },
+    99: { seed:20261199, tier:'D', frame:'maze', gap:[24,26], pal:{a:'#3a5a8c',b:'#2c4468',c:'#ffc93c',w:'#dce9f8'},
+      paint:function(M){
+        ocE(M,18,16,16,11,'a');
+        ocE(M,18,21,13,5,'w');
+        ocP(M,[[33,16],[39,10],[39,22]],'a');
+        ocP(M,[[12,24],[16,30],[20,24]],'b');
+        ocRows(M,[8],'c');
+        ocS(M,7,16,3,13,0.6,'c'); ocS(M,7,19,2,19,0.6,'c'); ocS(M,7,16,3,19,0.6,'c');
+        ocDot(M,10,14,'c'); ocDot(M,12,24,'c');
+        ocSet(M,14,8,null);
+      },
+      fixed:[[16,18,'ball'],[12,28,'bomb']] },
+    100: { seed:20261200, tier:'F', frame:'fort', gapsList:[[5,8],[17,20],[29,32]], pal:{a:'#3f8fae',b:'#2f6d88',c:'#ff8a5c'},
+      paint:function(M){
+        ocR(M,3,20,3,36,'a');
+        ocRows(M,[8,14],'b');
+        ocS(M,6,8,3,5,1,'c'); ocS(M,3,5,1,3,0.7,'c'); ocS(M,6,20,3,17,1,'c'); ocS(M,6,31,3,34,1,'c'); ocS(M,3,34,1,36,0.7,'c');
+        ocS(M,17,10,13,7,1,'c'); ocS(M,18,27,14,30,1,'c');
+        ocE(M,10,10,2.6,2.6,null); ocE(M,24,11,2.6,2.6,null); ocE(M,17,25,2.6,2.6,null); ocE(M,30,24,2.2,2.2,null);
+        ocE(M,6,30,2,2,'c'); ocE(M,12,33,2,2,'c');
+      },
+      cores:[[6,7],[6,19],[6,32]],
+      frameSteels:(function(){ var s=[]; for (var r=3;r<=32;r++){ s.push([r,13]); s.push([r,26]); } for (var c=3;c<=36;c++){ var inGap=(c>=4&&c<=9)||(c>=16&&c<=21)||(c>=28&&c<=33); if (!inGap && c!==13 && c!==26) s.push([32,c]); } return s; })(),
+      fixed:[[17,7,'ball'],[17,19,'ball'],[17,32,'ball'],[11,19,'bomb']] }
+  };
 
   /* ---- 每日关卡：UTC 日期字符串做确定性种子，种子决定图案模板、入口位置与形状、特殊砖侧重点 ----
      同一天打开布局完全相同，过了 UTC 零点换新关。砖量控制在 200-800 块之间；
@@ -2303,6 +3018,7 @@
   ];
   var DAILY_TPL_NAMES = ['波浪墙','菱形环','十字城','棋盘格','旋涡带','阶梯带','双子岛','回纹环'];
   function buildDaily(dateStr){
+    stdGrid();
     grid = blankGrid();
     var bricks = [], steels = [];
     var rnd = seeded(hashStr('jy-daily-' + dateStr));
@@ -2497,12 +3213,12 @@
       desc:'月白色的墙中央弯着一弯黑色的月牙，月牙两端尖、中间鼓，内部中空，藏着球砖和一颗炸弹。入口在右下、四格宽，顺着月牙的下尖钻进去。墙里开始出现少量灰色装甲砖，要多打一下，但数量不多。' },
     { name:'房子', speed:484, paddle:76, serves:0, types:['normal','ball','bomb','beam','widen','steel'], build:buildL39,
       desc:'暖棕色的墙中央立着一栋黑色的小房子：三角屋顶、方屋身，屋身正中还有一扇中空的门，门里和屋顶下都藏着球砖。入口在底部、三格宽，通道正对房门，从门进去就能在屋里放出连锁。' },
-    { name:'城堡要塞', speed:478, paddle:76, serves:5, cores:2, types:['normal','ball','bomb','beam','steel','core'], build:buildL40,
-      desc:'第四座要塞像一座石灰蓝的城堡：钢框围成一个主腔室，底部中央是向下张开的宽漏斗，挡板正中竖直发球就能进去，内侧钢唇把出口收窄，球进去后会在腔里多弹几圈。两个金色核心嵌在上部砖墙的左右两端，全部打碎才获胜。发球只有 5 次，用完要塞会重建，已通关的关卡不会丢。' },
+    { name:'双层套娃要塞', speed:478, paddle:76, serves:5, cores:2, types:['normal','ball','bomb','beam','armor','steel','core'], build:buildL40,
+      desc:'第四座要塞是双层套娃：钢框里套着外腔和内腔两层。入口在左侧——宽漏斗先进下层外腔，外腔是蓝紫砖面，混着球砖和一排炸弹链；外腔和上层内腔之间隔着一道钢墙，只在右侧留了两格宽的内门。两个金色核心藏在内腔的左上和右上，周围都有装甲砖护卫。打法：先进外腔、再找右侧内门进内腔。挡板正中竖直发球会被钢框挡回，必须从左侧进。两个核心全部打碎才获胜。发球只有 5 次，用完要塞会重建，已通关的关卡不会丢。' },
     { name:'字母 A', speed:488, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL41,
       desc:'珊瑚红的墙中央留着一个黑色的 A：两条腿、顶盖和横杠围出上下两个中空，上腔里藏着球砖，横杠上还有一颗加宽砖。入口收窄到两格、在底部偏右，通道口正上方就有一颗球砖，进门第一下就能放球。装甲开始变多，先点连锁再啃硬砖。' },
     { name:'圆环', speed:492, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL42,
-      desc:'湖蓝的墙中央浮着一个黑色的圆环，环带中空，环心还留着一座小砖岛。入口在左下、两格宽，通道对着环带的左下段，环里藏着球砖，环顶还有一颗加宽砖。球进了环带会沿着圈内壁滚动着打砖，别急着追球。' },
+      desc:'湖蓝的墙中央浮着一个黑色的圆环，环带中空，环心还留着一座小砖岛，环带底部开着一条两格宽的小隧道直通环心，岛里还藏着一颗炸弹。入口在左下、两格宽，通道对着环带的左下段，环里藏着球砖，环顶还有一颗加宽砖。球进了环带会沿着圈内壁滚动着打砖，别急着追球。' },
     { name:'字母 S', speed:496, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','steel'], build:buildL43,
       desc:'紫色的墙中央盘着一个黑色的 S：上下两个弯钩都是中空的，上钩藏着炸弹，下钩藏着球砖。入口在右下、两格宽，通道口正上方就是球砖。S 的弯道会把球引向意想不到的方向，装甲适中，靠炸弹和光束开路最省力。' },
     { name:'蝴蝶', speed:500, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL44,
@@ -2517,8 +3233,8 @@
       desc:'海蓝的墙中央驶着一艘黑色的帆船：两面三角帆和梯形船身都是中空的，船身里藏着球砖和加宽砖，大帆里也有一颗球砖。入口在船身左下、两格宽。先打船身攒球，再让多球去拆两面帆。' },
     { name:'花朵', speed:520, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL49,
       desc:'花粉色的墙中央开着一朵黑色的花：五片花瓣围着花心，花心和右下花瓣各藏一颗球砖，花茎上有一颗加宽砖。入口在右下花瓣下方、两格宽。花瓣彼此分开，要靠钢描边的反弹和连锁逐瓣打通，是中等段最后一关的小考验。' },
-    { name:'大腔室要塞', speed:512, paddle:76, serves:5, cores:2, types:['normal','ball','bomb','beam','steel','core'], build:buildL50,
-      desc:'第五座要塞比城堡更大：青蓝绿的腔室横贯整面墙，入口换到了左侧——宽漏斗从底部向左张开，进去后钢唇把出口收窄到两格，球会在大腔室里弹得更久。两个金色核心分别嵌在左上和右上的砖墙里，全部打碎才获胜。发球只有 5 次，用完要塞会重建，已通关的关卡不会丢。' },
+    { name:'螺旋回廊要塞', speed:512, paddle:76, serves:5, cores:2, types:['normal','ball','bomb','beam','armor','steel','core'], build:buildL50,
+      desc:'第五座要塞是一条顺时针螺旋回廊：从右侧斜坡漏斗进回廊外端，沿右壁上行、顶壁左行、左壁下行，再绕进内圈，最后钻到中心密室。回廊中段的左壁旁藏着一个侧 pocket，里面嵌着第一个金色核心；第二个核心嵌在中心密室正中。打法：沿螺旋回廊走到中心，别漏中段侧 pocket 核心。回廊转角都放了球砖，沿途有装甲和光束砖挡路，直线冲不到中心。两个核心全部打碎才获胜。发球只有 5 次，用完要塞会重建，已通关的关卡不会丢。' },
     { name:'字母 B', speed:524, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL51,
       desc:'琥珀色的墙中央留着一个黑色的 B：竖柄连着上下两个鼓肚，肚里都藏着球砖，下肚还有一颗加宽砖。入口在下肚底部、两格宽，正上方连着两颗定点球砖——从这里开始装甲更硬、连锁更多，但每一关都给你留了进门就放球的起点，不会进得去却打不动。' },
     { name:'字母 K', speed:528, paddle:76, serves:0, types:['normal','armor','ball','beam','bomb','widen','steel'], build:buildL52,
@@ -2537,8 +3253,88 @@
       desc:'苔绿的砖面被一圈钢框围住，框内还有横竖两道隔墙把内部分成几个小间，框外留着一圈回廊空道。入口在左下、两格宽，穿过框底就进内间，正上方定点放着球砖，最远的小间里还藏着加宽砖。先沿回廊摸清框形，再逐间清理。' },
     { name:'终局前哨', speed:556, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL59,
       desc:'暗红的墙上筑着最后一座前哨：中央堡垒连着左右两座塔楼，塔里各藏一颗球砖，堡里有加宽砖和炸弹。入口只剩堡底正中一格宽，是全旅程最窄的入口——但通道正上方就是定点球砖，只要送进一颗，堡内连锁会替你打开局面。这是终局要塞前的最后一道考验。' },
-    { name:'星核要塞', speed:520, paddle:76, serves:6, cores:3, types:['normal','ball','bomb','beam','steel','core'], build:buildL60,
-      desc:'最终要塞：蓝紫金的大腔室里还嵌着三个圆形的中空子图案，像三颗小星核，球可以钻进子腔里从内部打砖。入口是中央八格宽的超大漏斗，挡板正中竖直发球直接进入，钢唇收口让球不易原路掉回。三个金色核心分别嵌在左上、中上、右上的砖墙里，全部打碎才算通关。发球上限 6 次，用完要塞会重建，已通关的关卡不会丢。' }
+    { name:'三室星核要塞', speed:520, paddle:76, serves:6, cores:3, types:['normal','ball','bomb','beam','armor','steel','core'], build:buildL60,
+      desc:'最终要塞被两道钢隔墙切成左、中、右三间互不连通的密室，每间藏着一个金色核心，一共三个，全部打碎才通关。打法：左、中、右三室各藏一核心，逐个攻破——左室走左侧漏斗、以装甲护卫为主；中央室走中央烟囱、满室炸弹链；右室走右侧斜坡、正中是一座光束十字。打完一室要掉回下方，再从另一个入口进下一室，发球怎么分配本身就是难点。发球上限 6 次，用完要塞会重建，已通关的关卡不会丢。' },
+    { name:'小丑鱼', speed:560, paddle:76, serves:0, types:T_ALL, build:mkOcean(61),
+      desc:'海洋世界的第一站：橙白条纹的小丑鱼就悬在深色海水里，身上没有钢框，也不设防。动物下方全是开放水域，把球直接送上去打鱼身，鱼鳍和尾巴里藏着球砖和加宽砖，先用这一关熟悉细格像素砖的手感。' },
+    { name:'海星', speed:563, paddle:76, serves:0, types:T_ALL, build:mkOcean(62),
+      desc:'一只紫红色的五角海星摊在海底，五个角都是砖拼的，角尖各有一颗深色斑点砖。没有钢框，入口就是海星下方的整片开放区；星心藏着球砖，从任意一个角啃进去，点起连锁就能顺着角清过去。' },
+    { name:'水母', speed:566, paddle:76, serves:0, types:T_ALL, build:mkOcean(63),
+      desc:'半透明的伞盖在上方张着，六条触手在水里轻轻摆动，全是砖，没有钢框。伞盖是这一关最厚的部分，先打触手攒球，再集中火力啃伞盖；伞盖正中和触手根部都藏着球砖。' },
+    { name:'海马', speed:569, paddle:76, serves:0, types:T_ALL, build:mkOcean(64),
+      desc:'黄色的海马竖着身子，尾巴卷成一个圈，嘴巴朝右探着。身体上一道道横纹是深色砖，背鳍在身后张开。没有钢框，从下方直接打肚子最稳，卷尾的圈心是空的，别对着空处浪费球。' },
+    { name:'螃蟹', speed:572, paddle:76, serves:0, types:T_ALL, build:mkOcean(65),
+      desc:'红螃蟹横着身子，两只大钳子举在头顶两侧，六条腿撑在身下。钳子和腿都是砖，蟹身正中有一条深色纹路。没有钢框，先打腿和钳子攒球砖，再围攻蟹身，蟹盖里藏着加宽砖。' },
+    { name:'海龟', speed:575, paddle:76, serves:0, types:T_ALL, build:mkOcean(66),
+      desc:'绿壳海龟慢慢游着，龟壳是一圈深绿套着浅绿的纹路，脑袋探在右边，四只鳍在四角划水。没有钢框，壳沿是最薄的地方，从壳的下沿往里打，壳心藏着球砖，右下鳍边还有加宽砖。' },
+    { name:'小章鱼', speed:578, paddle:76, serves:0, types:T_ALL, build:mkOcean(67),
+      desc:'紫色小章鱼顶着圆脑袋，六条触手在身下散开，触手尖各有一颗深色砖。没有钢框，触手之间的水道是空的，球会从触手缝里钻上去打脑袋；脑袋两侧各藏一颗球砖，先点连锁再清触手。' },
+    { name:'海豚', speed:581, paddle:76, serves:0, types:T_ALL, build:mkOcean(68),
+      desc:'海豚拉着一道流线从左游到右，白肚皮、尖嘴巴，背鳍和尾鳍都是深蓝砖。没有钢框，鱼身下沿最薄，从肚子往上打最容易打开局面；身子中段藏着球砖，尾巴根部有加宽砖。' },
+    { name:'小鲨鱼', speed:584, paddle:76, serves:0, types:T_ALL, build:mkOcean(69),
+      desc:'灰蓝色的小鲨鱼张着一排白牙，背鳍立在背上，尾巴朝右甩开。没有钢框，这是入门海洋段最后一关，球砖比前面几关少了一点；从白肚皮往上打，别正对着牙齿那一排硬啃。' },
+    { name:'巨鲸要塞', speed:578, paddle:76, serves:5, cores:2, types:['normal','ball','bomb','beam','armor','steel','core'], build:mkOcean(70),
+      desc:'要塞是一头巨鲸：钢框围住整片海域，鲸身里面是一间大腔室，两个金色核心一左一右嵌在腔室上部，各有一圈装甲砖护卫。入口在底部钢条正中，六格宽，进去后有钢唇把出口收窄到四格，球进了腔室就不容易原路掉出来。两个核心全部打碎才获胜，发球只有 5 次，用完要塞重建，已通关进度不会丢。' },
+    { name:'海豹', speed:590, paddle:76, serves:0, types:T_ALL, build:mkOcean(71),
+      desc:'灰色的海豹趴在水里，脑袋翘在右边，尾鳍朝左张开。从这一段开始动物带上局部钢框：底部一条钢条只留四格缺口，两侧各有一段矮钢墙。先从缺口把球送进去打豹身，豹身中段藏着球砖和炸弹。' },
+    { name:'飞鱼', speed:593, paddle:76, serves:0, types:T_ALL, build:mkOcean(72),
+      desc:'飞鱼张着一对大翅膀鳍，上翅朝天、下翅朝地，身子是一道细长的流线。底部钢条的缺口开在左侧、四格宽，钢框只围了下半圈。从左缺口斜送进去打鱼身，光束砖藏在翅膀根部，一束能顺着翅膀清一排。' },
+    { name:'电鳗', speed:596, paddle:76, serves:0, types:T_ALL, build:mkOcean(73),
+      desc:'电鳗在水里盘成一道 S 形，背上隔一段就有一颗亮黄色的电斑砖。底部钢条缺口在右侧、四格宽。电鳗身子细长，先打弯道内侧攒球砖，再沿着身子一路清过去，头部藏着一颗炸弹收尾。' },
+    { name:'龙虾', speed:599, paddle:76, serves:0, types:T_ALL, build:mkOcean(74),
+      desc:'红龙虾一节一节的身子横在中央，两只大螯举在右边，尾巴扇在左边，两根长须探出框外。底部钢条缺口在正中、四格宽。先打虾节之间的深色纹路，钳子最硬，留到多球连锁起来再拆。' },
+    { name:'海蛇', speed:602, paddle:76, serves:0, types:T_ALL, build:mkOcean(75),
+      desc:'黄黑环纹的海蛇盘着两道弯，环纹是一节亮黄一节墨黑交替的砖。底部钢条缺口在左侧、四格宽。蛇身比电鳗粗一圈，装甲也多了一些；从弯道外侧打开口子，蛇头旁边的炸弹能帮你炸开一整段。' },
+    { name:'鲸鲨', speed:605, paddle:76, serves:0, types:T_ALL, build:mkOcean(76),
+      desc:'鲸鲨是这一段最大的鱼：满身白色斑点，嘴巴宽宽地张在左边。底部钢条缺口在右侧、四格宽。鱼身砖量大、装甲适中，先打下沿的斑点区攒球，再让多球去啃背鳍和尾巴，光束砖藏在身子中段。' },
+    { name:'魔鬼鱼', speed:608, paddle:76, serves:0, types:T_ALL, build:mkOcean(77),
+      desc:'魔鬼鱼摊开一对菱形大翅膀，白肚皮朝下，头前两只小角是头鳍，细尾巴拖在身后。底部钢条缺口在左侧、四格宽。翅膀薄、白肚皮更薄，从缺口斜打进翅膀下沿，炸弹藏在左翼中段。' },
+    { name:'海葵鱼', speed:611, paddle:76, serves:0, types:T_ALL, build:mkOcean(78),
+      desc:'粉色海葵在海底张着一丛触手，一条橙白条纹的小鱼躲在海葵上方。底部钢条缺口在正中、四格宽。先打海葵触手攒球——触手根部就藏着球砖，再打上方的鱼身；这一关考的是先下后上的顺序。' },
+    { name:'珊瑚蟹', speed:614, paddle:76, serves:0, types:T_ALL, build:mkOcean(79),
+      desc:'珊瑚蟹躲在橙色珊瑚枝后面，珊瑚枝本身也是砖，能打。底部钢条缺口在右侧、四格宽。先清挡路的珊瑚枝，再打蟹身和两只钳子；蟹盖正中藏着球砖，左钳边上有一颗炸弹接力。' },
+    { name:'巨鲨要塞', speed:608, paddle:76, serves:5, cores:2, types:['normal','ball','bomb','beam','armor','steel','core'], build:mkOcean(80),
+      desc:'这座要塞是一条巨鲨，鲨身被一道钢隔墙劈成左右双腔室：左腔在鲨头里，右腔在鲨腹里，各藏一个金色核心，隔墙不通，必须分别攻破。底部钢条开了两个入口，左边四格对着鲨头腔，右边四格对着鲨腹腔，入口上方各有一道钢唇收口。两个核心全部打碎才获胜，发球只有 5 次，怎么分配两边的发球本身就是难点。用完要塞重建，已通关进度不会丢。' },
+    { name:'海狮', speed:620, paddle:76, serves:0, types:T_ALL, build:mkOcean(81),
+      desc:'从这一段开始，动物住进完整的钢框水箱：四面钢墙，只在底部留三格宽的缺口。海狮在框里昂着头，前鳍撑在身下。缺口在正中偏左，先送球进去打狮身下沿，装甲明显变多，炸弹藏在海狮背上。' },
+    { name:'剑鱼', speed:623, paddle:76, serves:0, types:T_ALL, build:mkOcean(82),
+      desc:'剑鱼的长剑从嘴巴一直探到钢框右边，高背鳍立在背上。完整钢框，底部缺口在左侧、三格宽。从缺口进去先打鱼身，长剑那一排砖细而长，光束砖藏在剑根，一束能顺着剑身清到底。' },
+    { name:'鱿鱼', speed:626, paddle:76, serves:0, types:T_ALL, build:mkOcean(83),
+      desc:'鱿鱼顶着尖尖的伞帽，十条触手在身下垂成一排帘子，两只大眼睛是身上的空洞。完整钢框，底部缺口在右侧、三格宽。触手帘子之间的缝能漏球上去，先打伞帽攒球砖，再逐条清触手。' },
+    { name:'海胆', speed:629, paddle:76, serves:0, types:T_ALL, build:mkOcean(84),
+      desc:'海胆是一团深紫色的刺球：中心是层层同心圆的砖，十六根长刺朝四面八方支出去。完整钢框，底部缺口在正中、三格宽。刺与刺之间全是空水道，球能从刺缝钻到球心；先打外圈的刺，再围攻球心，炸弹藏在右上方的刺根。' },
+    { name:'灯笼鱼', speed:632, paddle:76, serves:0, types:T_ALL, build:mkOcean(85),
+      desc:'深海灯笼鱼通体深蓝，头顶垂着一盏亮黄色的小灯，肚子下面点着一排发光斑点砖。完整钢框，底部缺口在左侧、三格宽。发光斑点大多是球砖和光束砖，先点亮肚子攒球，再啃厚实的鱼头。' },
+    { name:'海龙', speed:635, paddle:76, serves:0, types:T_ALL, build:mkOcean(86),
+      desc:'海龙在水里盘成一道弯，身上一路长着叶状的鳍，像一片会游的海草，尾巴还卷着一簇海草砖。完整钢框，底部缺口在右侧、三格宽。叶鳍是浅绿砖、身子是深绿砖，先打鳍攒加宽，再沿身子清过去。' },
+    { name:'虎鲸', speed:638, paddle:76, serves:0, types:T_ALL, build:mkOcean(87),
+      desc:'虎鲸黑背白肚，眼后有一块白斑，高背鳍立在正中。完整钢框，底部缺口在正中、三格宽。白肚皮是最薄的一层，从缺口正上方打进去最快；装甲藏在黑背里，留给炸弹和多球慢慢磨。' },
+    { name:'海参', speed:641, paddle:76, serves:0, types:T_ALL, build:mkOcean(88),
+      desc:'粉褐色的海参软乎乎地横在框底上方，身上点着一格一格的疙瘩砖，身下还拖着一条足带。完整钢框，底部缺口在左侧、三格宽。海参身子扁、砖层薄，但装甲疙瘩不少，光束砖藏在身子左段，一束横扫整条身子。' },
+    { name:'蝠鲼', speed:644, paddle:76, serves:0, types:T_ALL, build:mkOcean(89),
+      desc:'蝠鲼摊开一对宽翅膀，比魔鬼鱼更宽更扁，头前两只头鳍卷成小圆筒，背上撒着白斑点。完整钢框，底部缺口在右侧、三格宽，这是较难段的收尾：装甲更多，先从翅膀下沿的白肚皮打开缺口，炸弹藏在左翼。' },
+    { name:'章鱼要塞', speed:638, paddle:76, serves:5, cores:2, types:['normal','ball','bomb','beam','armor','steel','core'], build:mkOcean(90),
+      desc:'章鱼要塞的脑袋是一间大腔室，两个金色核心并排藏在腔室上部，各有一圈装甲护卫；脑袋下方垂着六条砖砌的触手，触手之间是四条水道，底部钢条开了三个入口，入口之间立着短钢墙把水道分开。球要顺着触手水道游进脑袋腔室，进去后钢唇和触手根会把球多留一会儿。两个核心全部打碎才获胜，发球只有 5 次，用完要塞重建，已通关进度不会丢。' },
+    { name:'深海鲨', speed:650, paddle:76, serves:0, types:T_ALL, build:mkOcean(91),
+      desc:'最后一段开始：钢框里还砌着珊瑚迷宫，横竖钢墙把下半区隔成几个口袋，入口正上方就定点放着一颗球砖，送进第一颗球就能放出连锁。深海鲨比小鲨鱼大一圈，背上两片背鳍，嘴边一排白牙；迷宫口袋里还藏着球砖和加宽砖，绝不让你进得去却打不动。' },
+    { name:'巨型水母', speed:653, paddle:76, serves:0, types:T_ALL, build:mkOcean(92),
+      desc:'巨型水母的伞盖几乎撑满钢框，伞下垂着七条长触手和三条粗口腕，框底是珊瑚迷宫，缺口在左侧、三格宽，入口正上方定点球砖。先借迷宫口袋里的球砖攒出多球，再让球群顺着触手缝往上啃伞盖，伞盖里还有一层内铃铛砖。' },
+    { name:'海怪鱼', speed:656, paddle:76, serves:0, types:T_ALL, build:mkOcean(93),
+      desc:'海怪鱼的大头占了半个钢框，嘴巴是头侧一个现成的凹口，上下各一排白牙砖，头顶垂着发光的钓竿。框底珊瑚迷宫，缺口在右侧、三格宽，入口正上方定点球砖。先从嘴巴凹口往里打，鱼头最厚，靠迷宫里的光束和炸弹接力才啃得动。' },
+    { name:'珊瑚龙', speed:659, paddle:76, serves:0, types:T_ALL, build:mkOcean(94),
+      desc:'珊瑚龙昂着头，龙角是橙色珊瑚枝，身子盘成一道升起的弯，背上一路珊瑚鳍。框底珊瑚迷宫，缺口在正中、三格宽，入口正上方定点球砖。龙身装甲是全段最硬的一档，先点迷宫连锁攒球，再围攻龙头和龙角。' },
+    { name:'幽灵章鱼', speed:662, paddle:76, serves:0, types:T_ALL, build:mkOcean(95),
+      desc:'幽灵章鱼通体苍白，两只耳朵鳍张在脑袋两侧，身下是一片裙摆般的腕蹼。框底珊瑚迷宫，缺口在左侧、三格宽，入口正上方定点球砖。白色的砖里混着不少装甲，先打裙摆攒球，两只耳朵鳍里各藏着一颗球砖。' },
+    { name:'帝王蟹', speed:665, paddle:76, serves:0, types:T_ALL, build:mkOcean(96),
+      desc:'帝王蟹比普通螃蟹大了一整圈，蟹盖顶着一排金色冠刺，长腿一直撑到钢框两侧。框底珊瑚迷宫，缺口在右侧、三格宽，入口正上方定点球砖。腿和钳子先拆，蟹盖最硬，盖心藏着球砖，留到连锁成型再总攻。' },
+    { name:'深海龟', speed:668, paddle:76, serves:0, types:T_ALL, build:mkOcean(97),
+      desc:'深海龟的壳是深绿套着墨绿的同心纹，壳心一块浅绿，长脖子把脑袋探到框边，四只大鳍在四角。框底珊瑚迷宫，缺口在正中、三格宽，入口正上方定点球砖。壳沿薄、壳心硬，光束砖藏在左上鳍边，先开壳沿再磨壳心。' },
+    { name:'鲸落鱼群', speed:671, paddle:76, serves:0, types:T_ALL, build:mkOcean(98),
+      desc:'海底躺着一具鲸落：白色的肋骨一根根立着，头骨在右下，十二条小鱼在骨架上方游成一群，每条鱼都是几格砖拼的。框底珊瑚迷宫，缺口在左侧、三格宽，入口正上方定点球砖。小鱼分散，先逐条点掉攒连锁，再清肋骨和珊瑚礁，迷宫里有加宽砖兜底。' },
+    { name:'海神鲸', speed:674, paddle:76, serves:0, types:T_ALL, build:mkOcean(99),
+      desc:'海神鲸是旅程里最大的动物：身子几乎撑满钢框，头顶喷着三道水柱，背上一道金色冠纹。框底珊瑚迷宫，缺口在右侧、三格宽，入口正上方定点球砖。这是最终要塞前的最后一关，装甲和连锁都是全段之最，迷宫口袋里的球砖和炸弹是为你留的接力。' },
+    { name:'深海宫殿要塞', speed:640, paddle:76, serves:6, cores:3, types:['normal','ball','bomb','beam','armor','steel','core'], build:mkOcean(100),
+      desc:'最终要塞是海底的一座珊瑚宫殿：两道钢隔墙把宫殿切成左、中、右三间大殿，三间互不连通，每间上方各嵌着一个金色核心，核心周围有装甲护卫，殿里还长着橙色珊瑚枝。底部钢条给每间大殿各开一个入口，左殿四格、中殿四格、右殿四格，入口上方各有一道漏斗钢层收口。三个核心全部打碎才通关，发球上限 6 次，打完一殿掉回下方再换入口进下一殿。用完要塞重建，已通关进度不会丢。' }
   ];
 
   // 当前生效的关卡定义：每日关用 DAILY_DEF，旅程关用 LEVELS[level-1]
@@ -2577,6 +3373,7 @@
     var lv = def.build();
     S.bricks = lv.bricks; S.steels = lv.steels;
     S.total = lv.total; S.broken = 0;
+    applyDowngrade();
     S.coresLeft = 0;
     S.bricks.forEach(function(b){ if (b.type === 'core') S.coresLeft++; });
     S.elapsed = 0; S.paddleX = W/2;
@@ -2596,6 +3393,7 @@
     var built = buildDaily(S.dailyDate);
     S.bricks = built.bricks; S.steels = built.steels;
     S.total = built.total; S.broken = 0;
+    applyDowngrade();
     S.coresLeft = 0;
     S.dailyDesc = built.desc;
     BALL_SPEED = Math.round(built.speed * S.assist.speedMul);
@@ -2909,15 +3707,15 @@
       var prevBest = PROG.best[n];
       isRecord = (prevBest == null || t < prevBest);
       if (isRecord) PROG.best[n] = t;
-      if (n < 60) PROG.unlocked = Math.max(PROG.unlocked, n + 1);
+      if (n < 100) PROG.unlocked = Math.max(PROG.unlocked, n + 1);
       saveProg();
       bestVal = PROG.best[n];
-      document.getElementById('winTitle').textContent = (n === 60) ? '全部通关！' : (def.serves ? '核心摧毁！' : '砖墙打通了');
-      document.getElementById('winDesc').textContent = (n === 60)
-        ? '第 60 关 · ' + def.name + ' 已完成，60 关全部通关！'
+      document.getElementById('winTitle').textContent = (n === 100) ? '全部通关！' : (def.serves ? '核心摧毁！' : '砖墙打通了');
+      document.getElementById('winDesc').textContent = (n === 100)
+        ? '第 100 关 · ' + def.name + ' 已完成，100 关全部通关！'
         : ('第 ' + n + ' 关 · ' + def.name + ' 已完成。');
       document.getElementById('winPct').textContent = def.serves ? '核心已碎' : (Math.floor(ratio()*100) + '%');
-      document.getElementById('btnNext').hidden = (n >= 60);
+      document.getElementById('btnNext').hidden = (n >= 100);
     }
     document.getElementById('winTime').textContent = fmt(t);
     document.getElementById('winBest').textContent = fmt(bestVal);
@@ -2948,6 +3746,7 @@
   function assistNote(){
     var a = S.assist;
     if (!a || a.tier === 0) return '';
+    if (a.tier === 3) return '<br>已挑战超过20次，已降低一档难度：挡板更宽、球速更慢、装甲更脆、缺口更宽。';
     var txt = a.tier === 1
       ? '挡板已加宽、球速已放慢'
       : '挡板已加宽更多、球速已放慢更多' + (curDef().serves ? '、发球上限 +1' : '');
@@ -2993,9 +3792,9 @@
   function buildSelect(){
     lvGrid.innerHTML = '';
     var cleared = 0;
-    for (var k=1;k<=60;k++){ if (PROG.best[k] != null) cleared++; }
-    if (selCount) selCount.textContent = '已通关 ' + cleared + ' / 60 关';
-    for (var i=1;i<=60;i++){
+    for (var k=1;k<=100;k++){ if (PROG.best[k] != null) cleared++; }
+    if (selCount) selCount.textContent = '已通关 ' + cleared + ' / 100 关';
+    for (var i=1;i<=100;i++){
       (function(n){
         var locked = n > PROG.unlocked;
         var best = PROG.best[n];
@@ -3360,14 +4159,14 @@
   document.getElementById('btnSelectDaily').addEventListener('click', openDaily);
   document.getElementById('btnHomeStart').addEventListener('click', function(){
     SFX.unlock();
-    openLevel(Math.min(PROG.unlocked, 60));
+    openLevel(Math.min(PROG.unlocked, 100));
   });
   document.getElementById('btnHomeSelect').addEventListener('click', goSelect);
   document.getElementById('btnSelectBack').addEventListener('click', goHome);
   document.getElementById('btnStart').addEventListener('click', startGame);
   document.getElementById('btnStartLevels').addEventListener('click', goSelect);
   document.getElementById('btnAgain').addEventListener('click', restartLevel);
-  document.getElementById('btnNext').addEventListener('click', function(){ openLevel(Math.min(60, S.level + 1)); });
+  document.getElementById('btnNext').addEventListener('click', function(){ openLevel(Math.min(100, S.level + 1)); });
   document.getElementById('btnLevelsW').addEventListener('click', goSelect);
   document.getElementById('btnRetryF').addEventListener('click', restartLevel);
   document.getElementById('btnLevelsF').addEventListener('click', goSelect);
