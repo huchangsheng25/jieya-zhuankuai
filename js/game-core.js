@@ -28,15 +28,13 @@
   // 环境标记：测试环境不锁定关卡，生产环境正常顺序锁定；测试环境通关不推进真实解锁进度
   var IS_TEST_ENV = (TEXT_CONFIG.env === 'test' || TEXT_CONFIG.env === 'testing' || TEXT_CONFIG.testMode === true);
   function effectiveUnlocked(){ return IS_TEST_ENV ? 100 : PROG.unlocked; }
-  // 选关页定位只认“最后进过的关”：启动时 loadLevel(1) 不算进关，只有 openLevel/quickStart 才记。
-  // 这样测试环境下通关不推进真实解锁进度时，选关页也不会被真实解锁数拽回别的关。
-  var lastEnteredLevel = 0;
+  // 流程位置：玩家当前停在哪一关。启动时 loadLevel(1) 不算，只有进关/通关/重玩才更新，
+  // 这样“没重新选关、再点开始也回到这一关”，测试环境下也不会被真实解锁数拽走。
+  var flowLevel = 0;
   // 进选关时算一次定位并存到 MG.selAnchor，绘制高亮用同一个值，页码与高亮不可能分叉。
-  // 结算页回选关：刚通关的那关 +1（下一关）；提示卡/对局中/暂停回选关：正在打的那关；
-  // 每日关或还没进过任何关：真实解锁进度（测试环境下真实进度也不推进）。
+  // 通关时 flowLevel 已进到下一关，所以这里不用再 +1；每日关或还没进过任何关时用真实解锁进度。
   function computeSelectAnchor(){
-    if (S.mode === 'win' && !S.daily && lastEnteredLevel >= 1 && lastEnteredLevel < 100) return lastEnteredLevel + 1;
-    if (!S.daily && lastEnteredLevel >= 1 && lastEnteredLevel <= 100) return lastEnteredLevel;
+    if (!S.daily && flowLevel >= 1 && flowLevel <= 100) return flowLevel;
     return Math.max(1, Math.min(100, PROG.unlocked));
   }
   function wxGet(k){ try{ var v = wx.getStorageSync(k); return (v===undefined||v===null)?null:v; }catch(e){ return null; } }
@@ -3410,7 +3408,7 @@
   /* ================= 流程 ================= */
   function openLevel(n){
     loadLevel(n);
-    lastEnteredLevel = n;
+    flowLevel = n;
     fillCard(n);
     S.mode = 'card';
     showOverlay(ovStart);
@@ -3431,9 +3429,10 @@
     S.mode = 'serve';
   }
   function quickStart(){
-    var qn = Math.min(effectiveUnlocked(), 100);
+    // 没重新选关时，首页“开始”回到流程位置那关（通关后已进到下一关）；还没进过任何关时才从解锁进度起步。
+    var qn = (flowLevel >= 1 && flowLevel <= 100) ? flowLevel : Math.min(effectiveUnlocked(), 100);
     loadLevel(qn);
-    lastEnteredLevel = qn;
+    flowLevel = qn;
     startGame();
   }
   function restartLevel(){
@@ -3441,7 +3440,7 @@
     registerFail();   // 重玩 = 上一局未通关放弃，记 1 次尝试（已结算的局不会重复记）
     /* 背景音乐暂时停用：MUSIC.start() 调用已移除，后期恢复时在此重新调用 */
     if (S.daily){ S.dailyDate = dailyDateStr(); loadDailyLevel(); }   // 跨 UTC 零点重开即换新关
-    else loadLevel(S.level);
+    else { loadLevel(S.level); flowLevel = S.level; }
     S.attemptActive = true;   // 新的一局即刻开始，按新档位助力重开
     showOverlay(null);
     S.mode = 'serve';
@@ -3503,6 +3502,7 @@
       if (isRecord) PROG.best[n] = t;
       if (n < 100 && !IS_TEST_ENV) PROG.unlocked = Math.max(PROG.unlocked, n + 1);
       saveProg();
+      flowLevel = Math.min(100, n + 1);   // 通关后流程位置进到下一关，选关页与首页“开始”都跟下一关走
       bestVal = PROG.best[n];
       document.getElementById('winTitle').textContent = (n === 100) ? '全部通关！' : (def.serves ? '核心摧毁！' : '砖墙打通了');
       document.getElementById('winDesc').textContent = (n === 100)
