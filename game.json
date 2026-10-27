@@ -1,6 +1,4 @@
 {
   "deviceOrientation": "portrait",
-  "showStatusBar": false,
-  "workers": "",
-  "plugins": {}
+  "showStatusBar": false
 }
