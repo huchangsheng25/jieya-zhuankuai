@@ -116,58 +116,20 @@
     color:var(--faint); font-size:12px; line-height:1.5;
   }
 
-  /* ---------- 手机控制条：位于场地之外、与场地上下分开，拇指不遮挡挡板和球 ---------- */
+  /* ---------- 手机控制区：场地外的一块纯色区域，拇指在这里拖动移动挡板、点按发球 ---------- */
   .padbar{
     display:none;
     flex:0 0 auto;
     margin:0 12px 10px;
     height:68px;
     border-radius:14px;
-    background:var(--panel);
-    border:1px solid var(--line);
-    flex-direction:column; justify-content:center;
-    padding:8px 14px 6px;
+    background:#20242a;
     touch-action:none;
   }
-  .padbar-track{
-    position:relative; height:30px;
-    border-radius:999px; background:#171a20;
-    box-shadow:inset 0 0 0 1px #2c3138;
-  }
-  .padbar-track::before{
-    content:""; position:absolute; left:50%; top:6px; bottom:6px; width:1px;
-    background:rgba(255,255,255,.14);
-  }
-  .padbar-knob{
-    position:absolute; top:50%; left:50%;
-    width:68px; height:22px; border-radius:999px;
-    background:var(--salmon);
-    transform:translateY(-50%);
-    box-shadow:0 2px 8px rgba(0,0,0,.45);
-  }
-  .padbar-knob::after{
-    content:""; position:absolute; left:50%; top:50%;
-    width:9px; height:9px; border-radius:50%; background:#fff;
-    transform:translate(-50%,-50%);
-  }
-  .padbar.serving .padbar-knob{ animation:knobPulse 1.1s ease-in-out infinite; }
-  @keyframes knobPulse{
-    0%,100%{ box-shadow:0 2px 8px rgba(0,0,0,.45), 0 0 0 0 rgba(250,133,119,.45); }
-    50%{ box-shadow:0 2px 8px rgba(0,0,0,.45), 0 0 0 7px rgba(250,133,119,0); }
-  }
-  @media (prefers-reduced-motion: reduce){
-    .padbar.serving .padbar-knob{ animation:none; }
-  }
-  .padbar-hint{
-    margin-top:5px; text-align:center;
-    font-size:11.5px; color:var(--muted); line-height:1.3;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
-  .padbar.serving .padbar-hint{ color:#ffd9d3; }
-  /* 手机竖屏：显示控制条，底部大段说明文字不再出现；场地与控制条同屏完整显示 */
+  /* 手机竖屏：显示纯色控制区，底部大段说明文字不再出现；场地与控制区同屏完整显示 */
   @media (max-width:820px){
     .hintbar{ display:none; }
-    .padbar{ display:flex; }
+    .padbar{ display:block; }
   }
 
   /* ---------- Overlays ---------- */
@@ -218,6 +180,27 @@
   .btn.daily .ds{ font-size:12px; font-weight:600; color:var(--muted); }
   .daily-entry{ margin:0 0 12px; }
   .btnrow{ display:flex; flex-direction:column; gap:9px; }
+
+  /* ---------- 暂停页（简洁版：一张深色卡，继续/重玩/选关 + 两列小开关 + 退出） ---------- */
+  .pause-card h2{ text-align:center; margin-bottom:16px; }
+  .toggles{ display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:9px; }
+  .toggle{
+    appearance:none; border:0; cursor:pointer; font-family:inherit;
+    background:#1a1e22; color:var(--ink); border-radius:12px;
+    min-height:46px; padding:11px 13px;
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    font-size:14px; font-weight:700;
+  }
+  .toggle:active{ transform:scale(.97); }
+  .toggle .tg-state{ font-weight:800; color:#3ecf9a; }
+  .toggle.off .tg-state{ color:#6b747c; }
+  .quit-link{
+    appearance:none; border:0; background:none; cursor:pointer; font-family:inherit;
+    display:block; margin:14px auto 0; padding:6px 12px;
+    color:#c9d0d6; font-size:15px; font-weight:600;
+    text-decoration:underline; text-underline-offset:3px;
+  }
+  .quit-link:active{ opacity:.7; }
   .stats{
     display:flex; gap:10px; margin:0 0 16px;
   }
@@ -233,20 +216,45 @@
   }
   .tiny{ font-size:12px; color:var(--faint); text-align:center; margin-top:12px; line-height:1.6; }
 
-  /* ---------- 选关 ---------- */
-  .lvgrid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:0 0 14px; }
-  .lvbtn{
-    appearance:none; cursor:pointer; text-align:left;
-    background:#1a1e22; border:1px solid var(--line); border-radius:12px;
-    padding:10px 12px; color:var(--ink);
+  /* ---------- 选关（简洁版：标题行 / 通关数 / 一句话说明 / 紫色每日卡 / 5 列网格） ---------- */
+  .sel-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 8px; }
+  .sel-head h2{ margin:0; }
+  .sel-back{
+    appearance:none; border:0; cursor:pointer; flex:0 0 auto;
+    width:40px; height:40px; border-radius:11px;
+    background:var(--panel-2); color:var(--ink);
+    font-size:20px; line-height:1; font-family:inherit;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .sel-back:active{ transform:scale(.94); }
+  .sel-count{ font-size:14px; font-weight:600; color:#c9d0d6; font-variant-numeric:tabular-nums; margin:0 0 5px; }
+  .sel-note{ margin:0 0 14px; color:var(--muted); font-size:13.5px; line-height:1.55; }
+  /* 每日入口：突出的紫色卡片（纯色，无渐变） */
+  .daily-card{
+    appearance:none; border:0; cursor:pointer; width:100%;
+    background:#46348c; color:#fff; border-radius:14px;
+    padding:13px 15px; margin:0 0 14px; text-align:left;
     display:flex; flex-direction:column; gap:2px;
     font-family:inherit;
   }
-  .lvbtn:active{ transform:scale(.97); }
-  .lvbtn .n{ font-weight:800; font-size:14.5px; }
-  .lvbtn .nm{ font-size:12px; color:#c9d0d6; }
-  .lvbtn .t{ font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; }
-  .lvbtn.locked{ opacity:.42; cursor:default; }
+  .daily-card:active{ transform:scale(.98); }
+  .daily-card .dm{ font-size:16px; font-weight:800; letter-spacing:.02em; color:#fff; }
+  .daily-card .ds{ font-size:12.5px; font-weight:600; color:#cdc4f2; }
+  .lvgrid{ display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; margin:0; }
+  .lvbtn{
+    appearance:none; cursor:pointer; text-align:center;
+    background:#1a1e22; border:1px solid var(--line); border-radius:12px;
+    padding:7px 2px 8px; color:var(--ink);
+    min-height:56px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+    font-family:inherit;
+  }
+  .lvbtn:active{ transform:scale(.95); }
+  .lvbtn .fort{ font-size:9.5px; font-weight:800; letter-spacing:.12em; color:var(--gold); line-height:1.2; }
+  .lvbtn .n{ font-weight:800; font-size:18px; line-height:1.15; font-variant-numeric:tabular-nums; }
+  .lvbtn .t{ font-size:10px; color:var(--muted); font-variant-numeric:tabular-nums; line-height:1.2; }
+  .lvbtn .lock{ width:17px; height:17px; color:#7d868f; display:block; }
+  .lvbtn.locked{ background:#171a1f; cursor:default; }
   .lvbtn.fortress{ border-color:#8a6d1f; box-shadow:inset 0 0 0 1px #8a6d1f; }
 </style>
 </head>
@@ -296,11 +304,14 @@
     <!-- 选关页 -->
     <div class="overlay" id="ovSelect" hidden>
       <div class="card">
-        <h2>选关</h2>
-        <p>已通关的关卡显示最佳时间，未通关的会锁住；第 10、20、30 关要塞用金色边框标出。</p>
-        <button class="btn daily daily-entry" id="btnSelectDaily" type="button"><span class="dm" id="selDailyMain">每日关卡</span><span class="ds" id="selDailyStatus">今日还没通关 · 点此挑战</span></button>
+        <div class="sel-head">
+          <h2>选关</h2>
+          <button class="sel-back" id="btnSelectBack" type="button" aria-label="返回">‹</button>
+        </div>
+        <div class="sel-count" id="selCount">已通关 0 / 30 关</div>
+        <p class="sel-note">每 10 关是 1 座要塞，打碎金色核心。</p>
+        <button class="daily-card" id="btnSelectDaily" type="button"><span class="dm" id="selDailyMain">每日关卡</span><span class="ds" id="selDailyStatus">每天一关</span></button>
         <div class="lvgrid" id="lvGrid"></div>
-        <button class="btn ghost" id="btnSelectBack" type="button">回首页</button>
       </div>
     </div>
 
@@ -321,15 +332,18 @@
 
     <!-- 暂停 -->
     <div class="overlay" id="ovPause" hidden>
-      <div class="card">
-        <h2>已暂停</h2>
-        <p>计时已暂停，放心休息一下。</p>
+      <div class="card pause-card">
+        <h2>暂停</h2>
         <div class="btnrow">
           <button class="btn" id="btnResume" type="button">继续</button>
-          <button class="btn ghost" id="btnSound" type="button">音效：开</button>
-          <button class="btn ghost" id="btnRestartP" type="button">重新开始本关</button>
-          <button class="btn ghost" id="btnLevelsP" type="button">回选关</button>
+          <button class="btn ghost" id="btnRestartP" type="button">重玩</button>
+          <button class="btn ghost" id="btnLevelsP" type="button">选关</button>
         </div>
+        <div class="toggles">
+          <button class="toggle" id="btnSound" type="button"><span>音效</span><span class="tg-state">开</span></button>
+          <button class="toggle" id="btnAim" type="button"><span>瞄准线</span><span class="tg-state">开</span></button>
+        </div>
+        <button class="quit-link" id="btnQuitP" type="button">退出</button>
       </div>
     </div>
 
@@ -366,11 +380,8 @@
     </div>
   </div>
 
-  <!-- 手机控制条：场地之外单独一条，拇指在这里拖动移动挡板，不遮挡击球画面 -->
-  <div class="padbar" id="padbar">
-    <div class="padbar-track" id="padTrack"><div class="padbar-knob" id="padKnob"></div></div>
-    <div class="padbar-hint" id="padHint">拖动控制条移动挡板 · 点一下发球</div>
-  </div>
+  <!-- 手机控制区：场地外的一块纯色区域，拇指在这里拖动移动挡板、点一下发球，不遮挡击球画面 -->
+  <div class="padbar" id="padbar"></div>
 
   <div class="hintbar">手机：在场地任意位置拖动 · 电脑：鼠标移动，或 ← → / A D 移动，空格发球，P 暂停</div>
 </div>
@@ -565,6 +576,226 @@
       lost:   function(){ if (gate('lost', 150)) tone(420, 0.16, 'sine', 0.14, 210); },
       win:    function(){ if (gate('win', 200)){ tone(523, 0.11, 'triangle', 0.20); tone(659, 0.11, 'triangle', 0.20, null, 0.10); tone(784, 0.11, 'triangle', 0.20, null, 0.20); tone(1047, 0.20, 'triangle', 0.22, null, 0.30); } }
     };
+  })();
+
+  /* ================= 背景音乐：Web Audio 原创合成的轻快循环，无外部音频文件 =================
+     原创 8 小节大调循环，76 BPM、4/4，每拍约 0.789 秒、每小节约 3.158 秒、整圈约 25.3 秒，
+     无鼓组、无方波、无失真音色。和声为明亮的 I–V–vi–IV 循环（C–G–Am–F，各 1 小节、8 小节走两遍），
+     无转调、无紧张和弦。层次：柔和双层微失谐 pad 打底 + 一条清晰轻盈的原创主旋律
+     （三角波 + 柔和类钢琴音色，C 大调五声音阶短句动机：前 4 小节提出、后 4 小节呼应微变收尾，
+     每轮循环尾音有小变化）+ 每小节起拍极轻的正弦低音根音托底 + 稀疏铃音点缀
+     + 很轻的拨弦节奏点缀营造弹跳感（不连续密集琶音）。pad 每小节交叉淡入淡出，
+     循环首尾无缝衔接；轻量反馈延迟营造空间感。音乐总增益约 0.19，仍低于音效层。
+     只在对局中播放：开始/重玩时启动，暂停时挂起、继续时从原位置续播，
+     过关、失败、回选关/首页时停止。连锁、过关等事件只动音效层，不改音乐速度、调性与音量。
+     音乐开关与音效开关互不影响：关音乐只停音乐，关音效只停音效。默认开，选择存本地。
+     每次 start() 用一个新的 generation 增益节点承载全部新音符；stop() 只清调度器并把
+     旧 generation 淡出后断开，旧音符再也不会重响，不会出现两层音乐叠加或停不掉。 */
+  var MUSIC = (function(){
+    var actx = null, bus = null, gen = null, timer = null;
+    var nextTime = 0, bar = 0, loop = 0, paused = false;
+    var enabled = true;                 // 默认开启，可在暂停页切换；选择存本地，下次打开仍生效
+    try { enabled = window.localStorage.getItem('jy-music') !== 'off'; } catch(e){}
+    var BEAT = 60 / 76, BARLEN = BEAT * 4;   // 76 BPM：每拍约 0.789 秒，每小节约 3.158 秒，8 小节约 25.3 秒
+    /* 明亮和声循环 I–V–vi–IV，各 1 小节、8 小节里走两遍；低音为各和弦根音。
+       每组：[低音根音, pad 三音, 拨弦两音, 铃音]，均为原创和声编排。 */
+    var CHORDS = [
+      { bass: 130.81, pad: [261.63, 329.63, 392.00], pluck: [523.25, 392.00], bell: 1318.51 },  // I   C 大三和弦
+      { bass:  98.00, pad: [246.94, 293.66, 392.00], pluck: [493.88, 392.00], bell: 1174.66 },  // V   G 大三和弦
+      { bass: 110.00, pad: [220.00, 261.63, 329.63], pluck: [440.00, 329.63], bell: 1046.50 },  // vi  A 小三和弦
+      { bass:  87.31, pad: [174.61, 220.00, 261.63], pluck: [349.23, 261.63], bell: 1318.51 }   // IV  F 大三和弦
+    ];
+    /* 原创主旋律：C 大调五声音阶（C D E G A）内的短句动机，留白多、不写长线条。
+       每小节为一组 [拍偏移, 频率, 时值(拍)]：前半（第 1-4 小节）提出动机，
+       后半（第 5-8 小节）呼应再现并微变收尾；第 8 小节尾音在奇数轮改为 D5 作小变化。 */
+    var MELODY = [
+      [ [0, 659.25, 1], [1, 783.99, 1], [2, 880.00, 1], [3, 783.99, 1] ],   // 1 · C：E5 G5 A5 G5，动机提出
+      [ [0, 659.25, 2], [2, 587.33, 2] ],                                   // 2 · G：E5 D5，长音应答
+      [ [0, 659.25, 1], [1, 523.25, 1], [2, 440.00, 1], [3, 523.25, 1] ],   // 3 · Am：E5 C5 A4 C5，下行回旋
+      [ [0, 587.33, 2], [2, 659.25, 2] ],                                   // 4 · F：D5 E5，半收尾留白
+      [ [0, 659.25, 1], [1, 783.99, 1], [2, 880.00, 1], [3, 783.99, 1] ],   // 5 · C：动机呼应再现
+      [ [0, 880.00, 2], [2, 783.99, 2] ],                                   // 6 · G：A5 G5，高音起句微变
+      [ [0, 659.25, 1], [1, 587.33, 1], [2, 523.25, 1], [3, 587.33, 1] ],   // 7 · Am：E5 D5 C5 D5，级进收束
+      [ [0, 659.25, 2], [2, 523.25, 2] ]                                    // 8 · F→C：E5 落回 C5 主音
+    ];
+    function ensure(){
+      if (!actx){
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        try { actx = new AC(); } catch(e){ return false; }
+        bus = actx.createGain();
+        bus.gain.value = 0.19;                  // 音乐总增益约 0.19，背景偏上但不抢前景
+        bus.connect(actx.destination);
+        /* 轻量反馈延迟：约 3/4 拍（0.59 秒）、反馈 0.26、反馈回路低通 1600 Hz，空间感不浑浊。 */
+        var delay = actx.createDelay(1.0);
+        delay.delayTime.value = BEAT * 0.75;
+        var fb = actx.createGain(); fb.gain.value = 0.26;
+        var fbFilter = actx.createBiquadFilter();
+        fbFilter.type = 'lowpass'; fbFilter.frequency.value = 1600;
+        var wet = actx.createGain(); wet.gain.value = 0.14;
+        bus.connect(delay);
+        delay.connect(fbFilter); fbFilter.connect(fb); fb.connect(delay);
+        delay.connect(wet); wet.connect(actx.destination);
+      }
+      if (actx.state === 'suspended') actx.resume();
+      return true;
+    }
+    /* 双层微失谐 pad：正弦 + 三角（+0.3% 失谐），共用起音 0.45 秒、释放 1.1 秒的包络，
+       低通 1100 Hz；每小节一个和弦，释放尾巴伸进下一小节，与下一和弦交叉淡入淡出。 */
+    function padTone(freq, t0, vol){
+      var g = actx.createGain();
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(vol, t0 + 0.45);
+      g.gain.setValueAtTime(vol, t0 + BARLEN);
+      g.gain.linearRampToValueAtTime(0, t0 + BARLEN + 1.1);
+      var f = actx.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.value = 1100;
+      var o1 = actx.createOscillator(); o1.type = 'sine'; o1.frequency.value = freq;
+      var o2 = actx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = freq * 1.003;
+      o1.connect(f); o2.connect(f); f.connect(g); g.connect(gen);
+      o1.start(t0); o2.start(t0);
+      o1.stop(t0 + BARLEN + 1.2); o2.stop(t0 + BARLEN + 1.2);
+    }
+    /* 主旋律音：三角波 + 同度正弦叠成的柔和类钢琴音色，低通 2600 Hz，
+       快起音、随时值自然衰减，音量能听清旋律但盖不过音效。 */
+    function lead(freq, t0, lenBeats){
+      var dur = Math.max(0.45, lenBeats * BEAT * 0.96);
+      var g = actx.createGain();
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(0.17, t0 + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      var f = actx.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.value = 2600;
+      var o1 = actx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = freq;
+      var o2 = actx.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq;
+      var g2 = actx.createGain(); g2.gain.value = 0.5;
+      o1.connect(f); o2.connect(g2); g2.connect(f); f.connect(g); g.connect(gen);
+      o1.start(t0); o2.start(t0);
+      o1.stop(t0 + dur + 0.05); o2.stop(t0 + dur + 0.05);
+    }
+    /* 极轻正弦低音：每小节起拍轻触和弦根音一次，约 2.4 秒衰减完，只托底、不成低音线。 */
+    function bassNote(freq, t0){
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(0.13, t0 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 2.4);
+      o.connect(g); g.connect(gen);
+      o.start(t0); o.stop(t0 + 2.5);
+    }
+    /* 很轻的拨弦点缀：三角波短衰减，只落在反拍上营造弹跳感，不连续、不密集。 */
+    function pluck(freq, t0){
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'triangle'; o.frequency.value = freq;
+      var f = actx.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.value = 2000;
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(0.05, t0 + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.38);
+      o.connect(f); f.connect(g); g.connect(gen);
+      o.start(t0); o.stop(t0 + 0.42);
+    }
+    /* 极轻高音正弦铃音：只在第 2、6 小节出现一次，约 2.2 秒衰减，稀疏点缀。 */
+    function bell(freq, t0){
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.02, t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 2.2);
+      o.connect(g); g.connect(gen);
+      o.start(t0); o.stop(t0 + 2.3);
+    }
+    function scheduleBar(){
+      var ch = CHORDS[bar % CHORDS.length];
+      var t0 = nextTime;
+      for (var i = 0; i < ch.pad.length; i++) padTone(ch.pad[i], t0, 0.05);   // pad 打底，每小节一和弦
+      bassNote(ch.bass, t0);                                                  // 起拍根音托底
+      var notes = MELODY[bar];
+      for (var n = 0; n < notes.length; n++){
+        var freq = notes[n][1];
+        if (bar === 7 && n === notes.length - 1 && loop % 2 === 1) freq = 587.33;   // 奇数轮尾音微变 D5
+        lead(freq, t0 + notes[n][0] * BEAT, notes[n][2]);
+      }
+      if (bar % 2 === 0){
+        pluck(ch.pluck[1], t0 + BEAT * 3.5);                                  // 旋律密的小节只点一个反拍
+      } else {
+        pluck(ch.pluck[0], t0 + BEAT * 1.5);
+        pluck(ch.pluck[1], t0 + BEAT * 3.5);                                  // 旋律疏的小节补两个反拍
+      }
+      if (bar === 1 || bar === 5) bell(ch.bell, t0 + BEAT * 2);               // 每 4 小节一个铃音
+      nextTime += BARLEN;
+      bar++;
+      if (bar >= 8){ bar = 0; loop++; }        // 8 小节无缝循环，调度连续、首尾无断点
+    }
+    function discardGen(){
+      if (!gen) return;
+      var old = gen; gen = null;
+      old.gain.setTargetAtTime(0, actx.currentTime, 0.12);   // 快速淡出
+      setTimeout(function(){ try { old.disconnect(); } catch(e){} }, 1200);
+    }
+    function tick(){
+      if (!actx || !gen) return;
+      while (nextTime < actx.currentTime + 1.2) scheduleBar();
+    }
+    return {
+      isOn: function(){ return enabled; },
+      toggle: function(){
+        enabled = !enabled;
+        try { window.localStorage.setItem('jy-music', enabled ? 'on' : 'off'); } catch(e){}
+        return enabled;
+      },
+      start: function(){
+        if (!enabled || timer) return;          // 已在播放时直接返回，绝不叠加第二层调度器
+        if (!ensure()) return;
+        paused = false;
+        discardGen();                           // 丢弃上一轮 generation，旧音符不再重响
+        gen = actx.createGain();
+        gen.gain.value = 0;
+        gen.connect(bus);
+        gen.gain.setTargetAtTime(1, actx.currentTime, 0.6);   // 淡入约 1.5 秒
+        bar = 0; loop = 0;
+        nextTime = actx.currentTime + 0.2;
+        timer = setInterval(tick, 200);
+        tick();
+      },
+      /* 暂停：挂起 AudioContext，冻结当前调度位置；resume() 从原位置继续，不从头开始。
+         与 stop() 不同：不丢弃 generation、不重置 bar/loop。 */
+      pause: function(){
+        if (!timer || !actx) return;
+        clearInterval(timer); timer = null;
+        paused = true;
+        actx.suspend();
+      },
+      resume: function(){
+        if (!paused) return;
+        paused = false;
+        if (!enabled || !actx || !gen){         // 暂停期间关了音乐：丢弃旧 generation，不再响
+          discardGen();
+          if (actx && actx.state === 'suspended') actx.resume();
+          return;
+        }
+        actx.resume();
+        timer = setInterval(tick, 200);
+        tick();
+      },
+      stop: function(){
+        paused = false;
+        if (timer){ clearInterval(timer); timer = null; }
+        discardGen();
+        if (actx && actx.state === 'suspended') actx.resume();   // 不把挂起状态留给下一次 start
+      }
+    };
+  })();
+
+  /* ================= 瞄准线开关：默认开，选择存本地，下次打开仍生效 ================= */
+  var AIM = (function(){
+    var self = { on: true };
+    try { self.on = window.localStorage.getItem('jy-aim') !== 'off'; } catch(e){}
+    self.toggle = function(){
+      self.on = !self.on;
+      try { window.localStorage.setItem('jy-aim', self.on ? 'on' : 'off'); } catch(e){}
+      return self.on;
+    };
+    return self;
   })();
 
   /* ================= 关卡构建 =================
@@ -1817,23 +2048,27 @@
   }
   function startGame(){
     SFX.unlock();   // 用户手势内创建/恢复 AudioContext
+    /* 背景音乐暂时停用：MUSIC.start() 调用已移除，MUSIC 模块与 jy-music 本地值保留，后期恢复时在此重新调用 */
     showOverlay(null);
     S.mode = 'serve';
   }
   function restartLevel(){
     SFX.unlock();
+    /* 背景音乐暂时停用：MUSIC.start() 调用已移除，后期恢复时在此重新调用 */
     if (S.daily){ S.dailyDate = dailyDateStr(); loadDailyLevel(); }   // 跨 UTC 零点重开即换新关
     else loadLevel(S.level);
     showOverlay(null);
     S.mode = 'serve';
   }
   function goSelect(){
+    MUSIC.stop();
     buildSelect();
     refreshDailyUI();
     S.mode = 'menu';
     showOverlay(ovSelect);
   }
   function goHome(){
+    MUSIC.stop();   // 退出回开始页：背景音乐停止
     refreshDailyUI();
     S.mode = 'menu';
     showOverlay(ovHome);
@@ -1842,16 +2077,19 @@
     if (S.mode !== 'play' && S.mode !== 'serve') return;
     S.prevMode = S.mode;
     S.mode = 'pause';
+    MUSIC.pause();   // 暂停游戏时音乐挂起，继续时从原位置续播
     showOverlay(ovPause);
   }
   function resumeGame(){
     if (S.mode !== 'pause') return;
     showOverlay(null);
     S.mode = S.prevMode;
+    /* 背景音乐暂时停用：MUSIC.resume() 调用已移除，后期恢复时在此重新调用 */
   }
   function winLevel(){
     if (S.mode === 'win' || S.mode === 'fail') return;
     S.mode = 'win';
+    MUSIC.stop();
     var t = S.elapsed;
     var isRecord, bestVal;
     if (S.daily){
@@ -1892,6 +2130,7 @@
   function failLevel(){
     if (S.mode === 'fail' || S.mode === 'win') return;
     S.mode = 'fail';
+    MUSIC.stop();
     var def = LEVELS[S.level-1];
     document.getElementById('failDesc').textContent = def.serves + ' 次发球都用完了，要塞已重建，金色核心恢复原样。已经通关的关卡和最佳时间不会丢。';
     SFX.bomb();
@@ -1935,21 +2174,34 @@
     homeDailyMain.textContent = '每日关卡 · ' + d;
     homeDailyStatus.textContent = st;
     selDailyMain.textContent = '每日关卡 · ' + d;
-    selDailyStatus.textContent = st;
+    selDailyStatus.textContent = '每天一关';
   }
   var lvGrid = document.getElementById('lvGrid');
+  var selCount = document.getElementById('selCount');
+  var LOCK_SVG = '<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="9.5" rx="2" fill="currentColor" stroke="none"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
   function buildSelect(){
     lvGrid.innerHTML = '';
+    var cleared = 0;
+    for (var k=1;k<=30;k++){ if (PROG.best[k] != null) cleared++; }
+    if (selCount) selCount.textContent = '已通关 ' + cleared + ' / 30 关';
     for (var i=1;i<=30;i++){
       (function(n){
         var locked = n > PROG.unlocked;
         var best = PROG.best[n];
+        var isFort = (n === 10 || n === 20 || n === 30);
         var b = document.createElement('button');
         b.type = 'button';
-        b.className = 'lvbtn' + ((n === 10 || n === 20 || n === 30) ? ' fortress' : '') + (locked ? ' locked' : '');
-        b.innerHTML = '<span class="n">第 ' + n + ' 关</span>'
-          + '<span class="nm">' + LEVELS[n-1].name + '</span>'
-          + '<span class="t">' + (locked ? '已锁定' : (best != null ? ('最佳 ' + fmt(best)) : '未通关')) + '</span>';
+        b.className = 'lvbtn' + (isFort ? ' fortress' : '') + (locked ? ' locked' : '');
+        b.setAttribute('aria-label', '第 ' + n + ' 关' + (isFort ? ' · 要塞' : '') + (locked ? ' · 已锁定' : ''));
+        var html = '';
+        if (isFort) html += '<span class="fort">要塞</span>';
+        if (locked){
+          html += LOCK_SVG;
+        } else {
+          html += '<span class="n">' + n + '</span>';
+          if (best != null) html += '<span class="t">' + fmt(best) + '</span>';
+        }
+        b.innerHTML = html;
         if (!locked) b.addEventListener('click', function(){ openLevel(n); });
         lvGrid.appendChild(b);
       })(i);
@@ -2112,10 +2364,10 @@
         ctx.fill();
       }
     }
-    if (S.mode === 'serve' && S.balls.length){
-      // 发球前：保留原来的向上瞄准点状线
+    if (AIM.on && S.mode === 'serve' && S.balls.length){
+      // 发球前：保留原来的向上瞄准点状线（瞄准线开关关着时整段不画）
       drawDotted(S.balls[0], 0, -1);
-    } else if (S.mode === 'play' && S.balls.length){
+    } else if (AIM.on && S.mode === 'play' && S.balls.length){
       // 飞行中：只给下落的主球画反弹瞄准线（从挡板向上），上升的球不画
       for (var di = 0; di < S.balls.length; di++){
         var db = S.balls[di];
@@ -2187,7 +2439,6 @@
       updateHUD();
     }
     draw(ts);
-    syncPadbar();
   }
 
   /* ================= 尺寸自适应 ================= */
@@ -2247,11 +2498,8 @@
   });
   canvas.addEventListener('pointercancel', endPointer);
 
-  /* ================= 手机控制条：场地外相对拖动，滑块与挡板同步；点按发球 ================= */
+  /* ================= 手机控制区：场地外纯色区域相对拖动；点按发球 ================= */
   var padbar  = document.getElementById('padbar');
-  var padTrack= document.getElementById('padTrack');
-  var padKnob = document.getElementById('padKnob');
-  var padHint = document.getElementById('padHint');
   var padPtr = { active:false, lastX:null, startX:0, moved:false };
   padbar.addEventListener('pointerdown', function(e){
     e.preventDefault();
@@ -2263,8 +2511,8 @@
     if (!padPtr.active) return;
     if (Math.abs(e.clientX - padPtr.startX) > 9) padPtr.moved = true;
     if (S.mode !== 'play' && S.mode !== 'serve'){ padPtr.lastX = e.clientX; return; }
-    // 拇指在场地外的控制条上拖动，按与场地相同的比例移动挡板，拇指不进场地
-    var rect = padTrack.getBoundingClientRect();
+    // 拇指在场地外的纯色控制区上拖动，按与场地相同的比例移动挡板，拇指不进场地
+    var rect = padbar.getBoundingClientRect();
     var scale = rect.width > 0 ? W / rect.width : 1;
     S.paddleX = clamp(S.paddleX + (e.clientX - padPtr.lastX) * scale, PADDLE_W/2, W - PADDLE_W/2);
     padPtr.lastX = e.clientX;
@@ -2277,22 +2525,6 @@
   padbar.addEventListener('pointercancel', function(){
     padPtr.active = false; padPtr.lastX = null;
   });
-  // 滑块位置与挡板实时同步；发球待命时控制条内提示改为发球提示，并让滑块呼吸提示
-  var lastKnobF = -1, lastServing = null;
-  function syncPadbar(){
-    var f = S.paddleX / W;
-    if (Math.abs(f - lastKnobF) > 0.0004){
-      lastKnobF = f;
-      padKnob.style.left = 'calc(' + (f*100).toFixed(2) + '% - ' + (f*68).toFixed(1) + 'px)';
-    }
-    var serving = (S.mode === 'serve');
-    if (serving !== lastServing){
-      lastServing = serving;
-      padHint.textContent = serving ? '点一下发球 · 拖动控制条移动挡板' : '拖动控制条移动挡板 · 点一下发球';
-      padbar.classList.toggle('serving', serving);
-    }
-  }
-
   window.addEventListener('keydown', function(e){
     var k = e.key;
     if (k === 'ArrowLeft' || k === 'a' || k === 'A'){ keys.left = true; e.preventDefault(); }
@@ -2331,10 +2563,21 @@
   document.getElementById('btnRestartP').addEventListener('click', restartLevel);
   document.getElementById('btnLevelsP').addEventListener('click', goSelect);
   document.getElementById('btnResume').addEventListener('click', resumeGame);
+  /* 暂停页两个小开关：名称 + 开/关状态，开关互不影响，各自存本地（音乐开关暂时隐藏，MUSIC 模块保留） */
+  function setToggle(btn, on){
+    btn.querySelector('.tg-state').textContent = on ? '开' : '关';
+    btn.classList.toggle('off', !on);
+  }
   var btnSound = document.getElementById('btnSound');
-  function syncSoundBtn(){ btnSound.textContent = '音效：' + (SFX.isOn() ? '开' : '关'); }
+  function syncSoundBtn(){ setToggle(btnSound, SFX.isOn()); }
   btnSound.addEventListener('click', function(){ SFX.toggle(); syncSoundBtn(); });
   syncSoundBtn();
+  /* 音乐开关按钮暂时隐藏：btnMusic 元素与接线已移除，MUSIC.toggle()/isOn() 保留在模块内，后期恢复按钮时重新接线 */
+  var btnAim = document.getElementById('btnAim');
+  function syncAimBtn(){ setToggle(btnAim, AIM.on); }
+  btnAim.addEventListener('click', function(){ AIM.toggle(); syncAimBtn(); });
+  syncAimBtn();
+  document.getElementById('btnQuitP').addEventListener('click', goHome);
   btnPause.addEventListener('click', function(){
     if (S.mode === 'pause') resumeGame(); else pauseGame();
   });
