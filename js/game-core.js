@@ -98,6 +98,40 @@
   var STEEL_FADE_AT = 27000;            // 27s 起变淡
   var STEEL_DEAD_AT = 30000;            // 30s 只碰钢块自动熄灭
 
+  // 首页背景图：优先用代码包内的 images/home-bg.jpg；该文件是二进制，GitHub 快照推送
+  // 无法上传时走内嵌数据兜底——把 js/home-bg-data.js 里的 base64 写到用户数据目录再加载；
+  // 两者都失败时用下面的 Canvas 程序化背景（同款构图），首页绝不空白。
+  var homeBg = null, homeBgReady = false, homeBgEmbeddedTried = false;
+  function tryEmbeddedHomeBg(){
+    if (homeBgEmbeddedTried) return; homeBgEmbeddedTried = true;
+    try {
+      var data = require('./home-bg-data.js');
+      if (!data || typeof wx === 'undefined' || !wx.createImage || !wx.getFileSystemManager) return;
+      var fsm = wx.getFileSystemManager();
+      var userPath = (wx.env && wx.env.USER_DATA_PATH ? wx.env.USER_DATA_PATH : '') + '/home-bg.jpg';
+      if (!userPath) return;
+      var loadFrom = function(path){
+        try {
+          var img2 = wx.createImage();
+          img2.onload = function(){ homeBg = img2; homeBgReady = true; };
+          img2.onerror = function(){};
+          img2.src = path;
+        } catch(e){}
+      };
+      try { if (fsm.accessSync) fsm.accessSync(userPath); loadFrom(userPath); return; } catch(e){}
+      fsm.writeFile({ filePath: userPath, data: data, encoding: 'base64',
+        success: function(){ loadFrom(userPath); }, fail: function(){} });
+    } catch(e){}
+  }
+  try {
+    if (typeof wx !== 'undefined' && wx.createImage){
+      var homeBgImg = wx.createImage();
+      homeBgImg.onload = function(){ homeBg = homeBgImg; homeBgReady = true; };
+      homeBgImg.onerror = function(){ homeBgReady = false; tryEmbeddedHomeBg(); };
+      homeBgImg.src = 'images/home-bg.jpg';
+    }
+  } catch(e){}
+
   var canvas = document.getElementById('game');
   var ctx = canvas.getContext('2d');
   var stage = document.getElementById('stage');
@@ -3384,6 +3418,10 @@
     showOverlay(null);
     S.mode = 'serve';
   }
+  function quickStart(){
+    loadLevel(Math.min(effectiveUnlocked(), 100));
+    startGame();
+  }
   function restartLevel(){
     SFX.unlock();
     registerFail();   // 重玩 = 上一局未通关放弃，记 1 次尝试（已结算的局不会重复记）
@@ -3908,7 +3946,7 @@
   document.getElementById('btnSelectDaily').addEventListener('click', openDaily);
   document.getElementById('btnHomeStart').addEventListener('click', function(){
     SFX.unlock();
-    openLevel(Math.min(effectiveUnlocked(), 100));
+    quickStart();
   });
   document.getElementById('btnHomeSelect').addEventListener('click', goSelect);
   document.getElementById('btnSelectBack').addEventListener('click', goHome);
@@ -3967,6 +4005,50 @@
     ctx.fillStyle = color || '#ffffff';
     ctx.fillText(String(t==null?'':t), x, y);
   }
+  // 程序化首页背景：与 home-bg.jpg 同款构图（顶部橙砖、蓝色电路边线、底部白球+鲑鱼粉挡板），
+  // 供背景图未加载到时使用，颜色已压暗，按钮和文字叠在上面仍清晰。
+  function drawHomeBgProcedural(){
+    ctx.fillStyle = '#101218'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+    var gx, gy;
+    for (gx = 0; gx <= W; gx += 36){ ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
+    for (gy = 0; gy <= H; gy += 36){ ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke(); }
+    var bw = 44, bh = 18, gap = 4, row, col;
+    for (row = 0; row < 2; row++){
+      for (col = -1; col < 9; col++){
+        ctx.fillStyle = '#ff9a1f';
+        roundRect(col * (bw + gap) + (row % 2 ? 24 : 0), 26 + row * 22, bw, bh, 4); ctx.fill();
+      }
+    }
+    ctx.strokeStyle = 'rgba(80,140,255,0.65)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(10, 80); ctx.lineTo(10, 620); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W - 10, 80); ctx.lineTo(W - 10, 620); ctx.stroke();
+    ctx.fillStyle = '#3a86ff';
+    [110, 300, 520].forEach(function(yy){ ctx.beginPath(); ctx.arc(10, yy, 4, 0, Math.PI * 2); ctx.fill(); });
+    [110, 300, 520].forEach(function(yy){ ctx.beginPath(); ctx.arc(W - 10, yy, 4, 0, Math.PI * 2); ctx.fill(); });
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(W/2, 604, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff8a80';
+    roundRect(60, 622, 240, 14, 7); ctx.fill();
+  }
+
+  // 卡通艺术字标题：粗体 + 深色描边 + 黄橙渐变填充 + 投影（Canvas 无自定义字体文件时
+  // 的模拟做法，文字本身仍用系统粗体，放大后边缘清晰、不会糊）
+  function mgTitle(t, x, y, size){
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold ' + size + 'px sans-serif';
+    ctx.lineJoin = 'round';
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillText(t, x, y + 4);
+    var grad = null;
+    try { grad = ctx.createLinearGradient(x, y - size/2, x, y + size/2); grad.addColorStop(0, '#ffe94a'); grad.addColorStop(0.55, '#ff9a1f'); grad.addColorStop(1, '#ff5e3a'); } catch(e){}
+    ctx.lineWidth = Math.max(5, size/6); ctx.strokeStyle = '#6b2a00';
+    ctx.strokeText(t, x, y);
+    ctx.fillStyle = grad || '#ff9a1f';
+    ctx.fillText(t, x, y);
+    ctx.restore();
+  }
   function mgBtn(x, y, w, h, label, fill, color, action){
     ctx.fillStyle = fill || '#2a2e38';
     roundRect(x, y, w, h, 10); ctx.fill();
@@ -4009,9 +4091,9 @@
     }
     if (ov === 'ovHome'){
       ctx.fillStyle = '#101218'; ctx.fillRect(0, 0, W, H);
-      mgText('解压砖块', W/2, 180, 36, '#ffffff', 'center');
-      if (IS_TEST_ENV) mgText('测试环境 · 全部关卡已解锁', W/2, 222, 13, '#e8b93a', 'center');
-      mgBtn(60, 300, 240, 48, '开始', '#ff7a1a', '#ffffff', function(){ SFX.unlock(); openLevel(Math.min(effectiveUnlocked(), 100)); });
+      if (homeBgReady && homeBg){ try { ctx.drawImage(homeBg, 0, 0, W, H); ctx.fillStyle = 'rgba(10,12,18,0.45)'; ctx.fillRect(0, 0, W, H); } catch(e){} } else { drawHomeBgProcedural(); }
+      mgTitle('解压爆爆砖', W/2, 180, 42);
+      mgBtn(60, 300, 240, 48, '开始', '#ff7a1a', '#ffffff', function(){ SFX.unlock(); quickStart(); });
       mgBtn(60, 364, 240, 48, '选关', '#2a2e38', '#ffffff', function(){ goSelect(); });
       mgBtn(60, 428, 240, 48, '每日关卡 · ' + dailyDateStr(), '#6b4fd8', '#ffffff', function(){ openDaily(); });
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
@@ -4021,7 +4103,6 @@
       mgText(TEXT_CONFIG.healthPrompt.title, W/2, 512, 12, '#e8b93a', 'center');
       var antiLines = mgWrap(TEXT_CONFIG.healthPrompt.body, 24), ay = 532;
       antiLines.forEach(function(l){ mgText(l, W/2, ay, 11, '#c8cdd8', 'center'); ay += 17; });
-      mgText(TEXT_CONFIG.storageNote, W/2, 598, 12, '#8a90a0', 'center');
       return;
     }
     if (ov === 'ovSelect'){
