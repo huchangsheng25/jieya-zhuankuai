@@ -3,7 +3,7 @@
   "use strict";
 
   // ===== 微信小游戏适配层（本段为移植新增，原网页逻辑在其后）=====
-  var MG = {winW:390, winH:844, dpr:1, scale:1, ox:0, oy:0, currentOverlay:null, buttons:[], selPage:0, windowHandlers:{}, docHandlers:{}, els:{}};
+  var MG = {winW:390, winH:844, dpr:1, scale:1, ox:0, oy:0, currentOverlay:null, buttons:[], selPage:0, selAnchor:0, windowHandlers:{}, docHandlers:{}, els:{}};
   // 音频选项：iOS 静音键打开时也不静音游戏音效（仅影响本小游戏音频，不改系统设置）
   try { if (typeof wx !== 'undefined' && wx.setInnerAudioOption) wx.setInnerAudioOption({ obeyMuteSwitch: false, mixWithOther: false }); } catch(e){}
   // 文字提示全部取自配置文件 js/textConfig.js，改配置文件即可，找不到文件时用下面的默认值兜底
@@ -28,14 +28,15 @@
   // 环境标记：测试环境不锁定关卡，生产环境正常顺序锁定；测试环境通关不推进真实解锁进度
   var IS_TEST_ENV = (TEXT_CONFIG.env === 'test' || TEXT_CONFIG.env === 'testing' || TEXT_CONFIG.testMode === true);
   function effectiveUnlocked(){ return IS_TEST_ENV ? 100 : PROG.unlocked; }
-  // 选关页的“当前关”：没通关的就是刚打的那关，刚通关的进到下一关，全部通关停在 100 关；
-  // 每日关不占旅程关号时用真实解锁进度。测试环境下打过的测试关（关号大于真实解锁数）也停在那关。
-  function currentLevel(){
-    if (!S.daily && S.level >= 1 && S.level <= 100){
-      if (PROG.best[S.level] == null) return S.level;
-      if (S.level < PROG.unlocked) return Math.max(1, Math.min(100, PROG.unlocked));
-      return S.level;
-    }
+  // 选关页定位只认“最后进过的关”：启动时 loadLevel(1) 不算进关，只有 openLevel/quickStart 才记。
+  // 这样测试环境下通关不推进真实解锁进度时，选关页也不会被真实解锁数拽回别的关。
+  var lastEnteredLevel = 0;
+  // 进选关时算一次定位并存到 MG.selAnchor，绘制高亮用同一个值，页码与高亮不可能分叉。
+  // 结算页回选关：刚通关的那关 +1（下一关）；提示卡/对局中/暂停回选关：正在打的那关；
+  // 每日关或还没进过任何关：真实解锁进度（测试环境下真实进度也不推进）。
+  function computeSelectAnchor(){
+    if (S.mode === 'win' && !S.daily && lastEnteredLevel >= 1 && lastEnteredLevel < 100) return lastEnteredLevel + 1;
+    if (!S.daily && lastEnteredLevel >= 1 && lastEnteredLevel <= 100) return lastEnteredLevel;
     return Math.max(1, Math.min(100, PROG.unlocked));
   }
   function wxGet(k){ try{ var v = wx.getStorageSync(k); return (v===undefined||v===null)?null:v; }catch(e){ return null; } }
@@ -3409,6 +3410,7 @@
   /* ================= 流程 ================= */
   function openLevel(n){
     loadLevel(n);
+    lastEnteredLevel = n;
     fillCard(n);
     S.mode = 'card';
     showOverlay(ovStart);
@@ -3429,7 +3431,9 @@
     S.mode = 'serve';
   }
   function quickStart(){
-    loadLevel(Math.min(effectiveUnlocked(), 100));
+    var qn = Math.min(effectiveUnlocked(), 100);
+    loadLevel(qn);
+    lastEnteredLevel = qn;
     startGame();
   }
   function restartLevel(){
@@ -3445,7 +3449,8 @@
   function goSelect(){
     registerFail();   // 对局中途回选关 = 未通关尝试（在提示卡/结算页调用时不会误记）
     MUSIC.stop();
-    MG.selPage = Math.floor((currentLevel() - 1) / 20);   // 进选关就停在当前关那一页，不回第 1 页
+    MG.selAnchor = computeSelectAnchor();   // 先算定位（此时 S.mode 还是 win/card/pause，算完再改 menu）
+    MG.selPage = Math.floor((MG.selAnchor - 1) / 20);   // 进选关就停在当前关那一页，不回第 1 页
     buildSelect();
     refreshDailyUI();
     S.mode = 'menu';
@@ -4130,7 +4135,7 @@
         var col = i % 5, row = Math.floor(i / 5);
         var x = 12 + col * 68, y = 132 + row * 68;
         var locked = n > effectiveUnlocked(), fort = (n % 10 === 0);
-        var isCur = (n === currentLevel());
+        var isCur = (n === MG.selAnchor);
         ctx.fillStyle = locked ? '#1c1f28' : (isCur ? '#4a2a10' : (fort ? '#3a2c10' : '#2a2e38'));
         roundRect(x, y, 62, 62, 10); ctx.fill();
         if (isCur){
