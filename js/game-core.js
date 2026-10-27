@@ -4,6 +4,23 @@
 
   // ===== 微信小游戏适配层（本段为移植新增，原网页逻辑在其后）=====
   var MG = {winW:390, winH:844, dpr:1, scale:1, ox:0, oy:0, currentOverlay:null, buttons:[], selPage:0, windowHandlers:{}, docHandlers:{}, els:{}};
+  // 文字提示全部取自配置文件 js/textConfig.js，改配置文件即可，找不到文件时用下面的默认值兜底
+  var TEXT_CONFIG = (function(){
+    var d = {
+      healthPrompt: { title: '健康游戏提示 · 适合 8 岁以上玩家', body: '抵制不良游戏，拒绝盗版游戏。注意自我保护，谨防受骗上当。适度游戏益脑，沉迷游戏伤身。合理安排时间，享受健康生活。' },
+      ageRating: { title: '适龄提示', badge: '8+', subtitle: '适合 8 岁及以上玩家', body: '本游戏为休闲打砖块玩法，内容健康，无血腥暴力、恐怖、赌博、色情等不适宜内容，无内购与聊天功能，操作简单，适合 8 岁及以上玩家游玩。未成年人请在家长陪同与指导下合理安排游戏时间。', buttonLabel: '适龄提示 · 8+', closeLabel: '知道了' },
+      storageNote: '进度存在本机微信存储，不与网页版互通'
+    };
+    try{
+      var c = require('./textConfig.js');
+      if (c){
+        if (c.healthPrompt) d.healthPrompt = c.healthPrompt;
+        if (c.ageRating) d.ageRating = c.ageRating;
+        if (c.storageNote) d.storageNote = c.storageNote;
+      }
+    }catch(e){}
+    return d;
+  })();
   function wxGet(k){ try{ var v = wx.getStorageSync(k); return (v===undefined||v===null)?null:v; }catch(e){ return null; } }
   function wxSet(k,v){ try{ wx.setStorageSync(k,v); }catch(e){} }
   function makeEl(id){
@@ -2099,11 +2116,11 @@
   function ocDot(M,r,c,ch){ if (M[key(r,c)]) M[key(r,c)] = ch; }
 
   var OC_TABLES = {
-    A: [[0.10,'ball'],[0.13,'bomb'],[0.155,'beam'],[0.175,'widen'],[0.195,'armor',2]],
-    B: [[0.15,'armor',2],[0.19,'ball'],[0.225,'bomb'],[0.245,'beam'],[0.265,'widen']],
-    C: [[0.17,'armor',2],[0.20,'armor',3],[0.24,'ball'],[0.27,'bomb'],[0.29,'beam'],[0.305,'widen']],
-    D: [[0.18,'armor',3],[0.25,'armor',2],[0.30,'ball'],[0.345,'bomb'],[0.365,'beam'],[0.38,'widen']],
-    F: [[0.08,'ball'],[0.11,'bomb'],[0.13,'beam'],[0.16,'armor',2]]
+    A: [[0.04,'armor',2],[0.08,'ball'],[0.10,'bomb'],[0.115,'beam'],[0.13,'widen']],
+    B: [[0.12,'armor',2],[0.16,'armor',3],[0.19,'ball'],[0.21,'bomb'],[0.225,'beam'],[0.24,'widen']],
+    C: [[0.14,'armor',2],[0.20,'armor',3],[0.225,'ball'],[0.245,'bomb'],[0.26,'beam'],[0.275,'widen']],
+    D: [[0.16,'armor',3],[0.24,'armor',2],[0.265,'ball'],[0.285,'bomb'],[0.30,'beam'],[0.315,'widen']],
+    F: [[0.06,'ball'],[0.09,'bomb'],[0.11,'beam'],[0.16,'armor',2]]
   };
 
   function buildOcean(n){
@@ -2113,7 +2130,7 @@
     var bricks = [], steels = [];
     var rnd = seeded(spec.seed);
     var pal = spec.pal;
-    if (!pal.s) pal.s = '#c9a86a';
+    if (!pal.s) pal.s = '#2e4a5f';
     var M = {};
     spec.paint(M);
     var i, k, r, c;
@@ -2131,11 +2148,28 @@
         if (M[nk]) fixedMap[nk] = { type:'armor', hp:2 };
       }
     });
-    // 砖量兜底：不足 445 时从最底行起补海底沙砖（避开缺口列与钢框列），过多时定点抽稀
-    // 钢框（按难度段）： steels 覆盖同格砖
+    // 61-100 关加固：所有普通关都用完整钢框 + 内部分隔钢条，入口随难度收窄；
+    // 空白处用深海背景砖补满到目标砖量，动物图案仍以亮色砖呈现，不再是稀疏剪影。
+    var isFortOcean = !!spec.cores;
+    var gapW = spec.tier === 'A' ? 4 : (spec.tier === 'B' ? 3 : (spec.tier === 'D' ? 2 : 3));
+    var mainGap = spec.gap ? spec.gap.slice() : null;
+    if (!mainGap && spec.gapsList) mainGap = spec.gapsList[0].slice();
+    if (!mainGap){
+      var gapCenters = [10, 19, 28];
+      var gcen0 = gapCenters[n % 3];
+      mainGap = [gcen0 - Math.floor((gapW - 1) / 2), gcen0 + Math.ceil((gapW - 1) / 2)];
+      mainGap[0] = Math.max(3, mainGap[0]); mainGap[1] = Math.min(36, mainGap[1]);
+    }
+    if (mainGap){
+      var gw0 = mainGap[1] - mainGap[0] + 1;
+      if (gw0 > gapW){
+        var gc0 = Math.round((mainGap[0] + mainGap[1]) / 2);
+        mainGap = [gc0 - Math.floor((gapW - 1) / 2), gc0 + Math.ceil((gapW - 1) / 2)];
+      }
+    }
+    var gapsList = spec.gapsList ? spec.gapsList.map(function(g){ return g.slice(); }) : (mainGap ? [mainGap] : []);
     var steelSet = {};
     function addSteel(rr,cc){ steelSet[key(rr,cc)] = true; }
-    var gapsList = spec.gapsList || (spec.gap ? [spec.gap] : []);
     function bottomBar(){
       for (var bc=2; bc<=37; bc++){
         var inGap = false;
@@ -2143,13 +2177,26 @@
         if (!inGap) addSteel(33, bc);
       }
     }
-    if (spec.frame === 'partial'){
-      bottomBar();
-      for (var pr=26; pr<=32; pr++){ addSteel(pr, 2); addSteel(pr, 37); }
-    } else if (spec.frame === 'full' || spec.frame === 'maze' || spec.frame === 'fort'){
+    var effectiveFrame = isFortOcean ? spec.frame : (spec.frame === 'maze' ? 'maze' : 'full');
+    if (effectiveFrame === 'full' || effectiveFrame === 'maze' || effectiveFrame === 'fort'){
       for (var tc=2; tc<=37; tc++) addSteel(1, tc);
       for (var sr=2; sr<=32; sr++){ addSteel(sr, 2); addSteel(sr, 37); }
       bottomBar();
+    }
+    if (!isFortOcean){
+      var gcenMain = mainGap ? Math.round((mainGap[0] + mainGap[1]) / 2) : 19;
+      var partRows = spec.tier === 'A' ? [16] : spec.tier === 'B' ? [12, 22] : spec.tier === 'C' ? [10, 20] : [14];
+      partRows.forEach(function(pr, idx){
+        var gapC = (idx % 2 === 0) ? (gcenMain <= 19 ? 28 : 10) : gcenMain;
+        for (var pc=3; pc<=36; pc++){ if (pc < gapC - 1 || pc > gapC + 1) addSteel(pr, pc); }
+      });
+      if (spec.tier === 'C'){
+        for (var vr=4; vr<=9; vr++){ if (vr !== 7) addSteel(vr, 20); }
+      }
+      if (spec.tier === 'D'){
+        for (var vr2=4; vr2<=12; vr2++){ if (vr2 !== 8) addSteel(vr2, 10); }
+        for (var vr3=16; vr3<=24; vr3++){ if (vr3 !== 20) addSteel(vr3, 29); }
+      }
     }
     if (spec.frame === 'maze' && spec.gap){
       var gc0 = spec.gap[0], gc1 = spec.gap[1], gcen = Math.round((gc0+gc1)/2);
@@ -2159,29 +2206,33 @@
         if (gcen-8 >= 4) addSteel(m3, gcen-8);
         if (gcen+8 <= 35) addSteel(m3, gcen+8);
       }
-      fixedMap[key(32, gcen)] = { type:'ball', hp:1 };          // 入口正上方定点球砖
-      fixedMap[key(28, 7)] = { type:'ball', hp:1 };              // 迷宫口袋里的球砖与加宽砖
+      fixedMap[key(32, gcen)] = { type:'ball', hp:1 };
+      fixedMap[key(28, 7)] = { type:'ball', hp:1 };
       fixedMap[key(28, 32)] = { type:'ball', hp:1 };
       fixedMap[key(25, gcen)] = { type:'widen', hp:1 };
     }
     if (spec.frameSteels) spec.frameSteels.forEach(function(fs){ addSteel(fs[0], fs[1]); });
     for (k in steelSet){ delete M[k]; delete fixedMap[k]; }
-    var cells = Object.keys(M);
-    if (spec.seabed !== false && cells.length < 410){
-      var gapCols = {};
-      (spec.gapsList || [spec.gap]).forEach(function(g){ if (g) for (var gc=g[0]; gc<=g[1]; gc++) gapCols[gc] = true; });
-      var bedRows = spec.frame === 'maze' ? [32,31,29,28,26,25,24,23] : (spec.frame === 'none' ? [33,32,31,30,29,28] : [32,31,30,29,28]);
-      for (var bi=0; bi<bedRows.length && cells.length < 420; bi++){
-        for (var bc=3; bc<=36 && cells.length < 420; bc++){
-          var bk = key(bedRows[bi], bc);
-          if (!M[bk] && !gapCols[bc] && !steelSet[bk]){ M[bk] = 's'; cells.push(bk); }
-        }
+    // 补满空白：非要塞关把钢框内的空白格用深海背景砖补到目标砖量，保留单格细节空洞；
+    // 分隔钢条都留了 3 格缺口，不会密封任何砖群。
+    if (!isFortOcean){
+      var fillTarget = spec.tier === 'A' ? 680 : (spec.tier === 'B' ? 720 : (spec.tier === 'C' ? 760 : 780));
+      var emptyCells = [];
+      for (var fr=2; fr<=32; fr++) for (var fc=3; fc<=36; fc++){
+        var fk = key(fr, fc);
+        if (M[fk] || steelSet[fk] || coreSet[fk]) continue;
+        if (M[key(fr-1,fc)] && M[key(fr+1,fc)] && M[key(fr,fc-1)] && M[key(fr,fc+1)]) continue;
+        emptyCells.push(fk);
       }
+      for (var sh=emptyCells.length-1; sh>0; sh--){ var sj2 = Math.floor(rnd()*(sh+1)); var tmp2 = emptyCells[sh]; emptyCells[sh]=emptyCells[sj2]; emptyCells[sj2]=tmp2; }
+      var filledCount = Object.keys(M).length;
+      for (var ei=0; ei<emptyCells.length && filledCount < fillTarget; ei++){ M[emptyCells[ei]] = 's'; filledCount++; }
     }
-    if (cells.length > 790){
+    var cells = Object.keys(M);
+    if (cells.length > 860){
       for (var si=cells.length-1; si>0; si--){ var sj = Math.floor(rnd()*(si+1)); var stmp = cells[si]; cells[si]=cells[sj]; cells[sj]=stmp; }
       var keep = {};
-      cells.slice(0, 780).forEach(function(ck){ keep[ck] = true; });
+      cells.slice(0, 850).forEach(function(ck){ keep[ck] = true; });
       for (k in M) if (!keep[k] && !fixedMap[k]) delete M[k];
     }
     // 放钢
@@ -3914,12 +3965,12 @@
     if (MG.showAge){
       ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(0, 0, W, H);
       mgCard(28, 150, 304, 340);
-      mgText('适龄提示', W/2, 184, 24, '#ffffff', 'center');
-      mgText('8+', W/2, 224, 36, '#e8b93a', 'center');
-      mgText('适合 8 岁及以上玩家', W/2, 254, 14, '#ffffff', 'center');
-      var ageLines = mgWrap('本游戏为休闲打砖块玩法，内容健康，无血腥暴力、恐怖、赌博、色情等不适宜内容，无内购与聊天功能，操作简单，适合 8 岁及以上玩家游玩。未成年人请在家长陪同与指导下合理安排游戏时间。', 19), ayy = 280;
+      mgText(TEXT_CONFIG.ageRating.title, W/2, 184, 24, '#ffffff', 'center');
+      mgText(TEXT_CONFIG.ageRating.badge, W/2, 224, 36, '#e8b93a', 'center');
+      mgText(TEXT_CONFIG.ageRating.subtitle, W/2, 254, 14, '#ffffff', 'center');
+      var ageLines = mgWrap(TEXT_CONFIG.ageRating.body, 19), ayy = 280;
       ageLines.slice(0, 6).forEach(function(l){ mgText(l, W/2, ayy, 13, '#c8cdd8', 'center'); ayy += 20; });
-      mgBtn(88, 428, 184, 44, '知道了', '#ff7a1a', '#ffffff', function(){ MG.showAge = false; });
+      mgBtn(88, 428, 184, 44, TEXT_CONFIG.ageRating.closeLabel, '#ff7a1a', '#ffffff', function(){ MG.showAge = false; });
       return;
     }
     if (ov === 'ovHome'){
@@ -3932,10 +3983,10 @@
       roundRect(28, 496, 304, 84, 12); ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
       roundRect(28, 496, 304, 84, 12); ctx.stroke();
-      mgText('健康游戏提示 · 适合 8 岁以上玩家', W/2, 512, 12, '#e8b93a', 'center');
-      var antiLines = mgWrap('抵制不良游戏，拒绝盗版游戏。注意自我保护，谨防受骗上当。适度游戏益脑，沉迷游戏伤身。合理安排时间，享受健康生活。', 24), ay = 532;
+      mgText(TEXT_CONFIG.healthPrompt.title, W/2, 512, 12, '#e8b93a', 'center');
+      var antiLines = mgWrap(TEXT_CONFIG.healthPrompt.body, 24), ay = 532;
       antiLines.forEach(function(l){ mgText(l, W/2, ay, 11, '#c8cdd8', 'center'); ay += 17; });
-      mgText('进度存在本机微信存储，不与网页版互通', W/2, 598, 12, '#8a90a0', 'center');
+      mgText(TEXT_CONFIG.storageNote, W/2, 598, 12, '#8a90a0', 'center');
       return;
     }
     if (ov === 'ovSelect'){
@@ -3991,7 +4042,7 @@
       mgBtn(68, 312, 224, 44, '选关', '#2a2e38', '#ffffff', function(){ goSelect(); });
       mgBtn(68, 368, 106, 40, '音效 ' + (SFX.isOn() ? '开' : '关'), '#2a2e38', '#ffffff', function(){ SFX.toggle(); });
       mgBtn(186, 368, 106, 40, '瞄准线 ' + (AIM.on ? '开' : '关'), '#2a2e38', '#ffffff', function(){ AIM.toggle(); });
-      mgBtn(68, 416, 224, 40, '适龄提示 · 8+', '#2a2e38', '#ffffff', function(){ MG.showAge = true; });
+      mgBtn(68, 416, 224, 40, TEXT_CONFIG.ageRating.buttonLabel, '#2a2e38', '#ffffff', function(){ MG.showAge = true; });
       mgBtn(68, 464, 224, 28, '退出回开始页', '#1c1f28', '#c8cdd8', function(){ goHome(); });
       return;
     }
