@@ -291,7 +291,7 @@
       <div class="card">
         <span class="tag">解压砖块</span>
         <h1>解压砖块</h1>
-        <p>把球从钢墙的缺口送进去，看整面砖墙在球砖、炸弹和光束的连锁里崩掉。一共 30 关，第 10、20、30 关是藏着金色核心的要塞；另外每天还有一关按 UTC 日期生成的新关。</p>
+        <p>把球从钢墙的缺口送进去，看整面砖墙在球砖、炸弹和光束的连锁里崩掉。一共 60 关，第 10、20、30、40、50、60 关是藏着金色核心的要塞；另外每天还有一关按 UTC 日期生成的新关。</p>
         <div class="btnrow">
           <button class="btn daily" id="btnHomeDaily" type="button"><span class="dm" id="homeDailyMain">每日关卡</span><span class="ds" id="homeDailyStatus">今日还没通关 · 点此挑战</span></button>
           <button class="btn" id="btnHomeStart" type="button">开始游戏</button>
@@ -308,7 +308,7 @@
           <h2>选关</h2>
           <button class="sel-back" id="btnSelectBack" type="button" aria-label="返回">‹</button>
         </div>
-        <div class="sel-count" id="selCount">已通关 0 / 30 关</div>
+        <div class="sel-count" id="selCount">已通关 0 / 60 关</div>
         <p class="sel-note">每 10 关是 1 座要塞，打碎金色核心。</p>
         <button class="daily-card" id="btnSelectDaily" type="button"><span class="dm" id="selDailyMain">每日关卡</span><span class="ds" id="selDailyStatus">每天一关</span></button>
         <div class="lvgrid" id="lvGrid"></div>
@@ -467,12 +467,56 @@
     var rawProg = window.localStorage.getItem('jy-progress');
     if (rawProg){
       var pp = JSON.parse(rawProg);
-      if (pp && pp.unlocked) PROG.unlocked = clamp(parseInt(pp.unlocked,10)||1, 1, 30);
+      if (pp && pp.unlocked) PROG.unlocked = clamp(parseInt(pp.unlocked,10)||1, 1, 60);
       if (pp && pp.best) PROG.best = pp.best;
     }
   } catch(e){}
   function saveProg(){
     try { window.localStorage.setItem('jy-progress', JSON.stringify(PROG)); } catch(e){}
+  }
+
+  /* ================= 自适应难度：未通关尝试次数（单独存本地新键 jy-attempts） =================
+     只扶不惩罚：难度靠关卡序号上升；同一关反复未通关才给助力，绝不因打得好调难。
+     定义：每次点「开始」进入一局，未通关就退出/回选关/要塞重建，记 1 次未通关尝试；
+     通关后该关次数清零。助力只改手感（挡板宽、球速、要塞发球上限），绝不改砖量、
+     布局、入口、图案、95% 目标与核心数量/位置。每日关按当天日期单独计次。 */
+  var ATT = { lv: {}, dy: {} };
+  try {
+    var rawAtt = window.localStorage.getItem('jy-attempts');
+    if (rawAtt){
+      var pa = JSON.parse(rawAtt);
+      if (pa && pa.lv) ATT.lv = pa.lv;
+      if (pa && pa.dy) ATT.dy = pa.dy;
+    }
+  } catch(e){}
+  function saveAtt(){
+    try { window.localStorage.setItem('jy-attempts', JSON.stringify(ATT)); } catch(e){}
+  }
+  // failedCount = 此前未通关次数；本次挑战序号 = failedCount + 1
+  function assistFor(failedCount){
+    var no = (failedCount || 0) + 1;
+    var tier = no >= 5 ? 2 : (no >= 3 ? 1 : 0);
+    return {
+      no: no, tier: tier,
+      paddleMul: tier === 2 ? 1.20 : (tier === 1 ? 1.12 : 1),
+      speedMul:  tier === 2 ? 0.85 : (tier === 1 ? 0.92 : 1),
+      servesBonus: tier === 2 ? 1 : 0
+    };
+  }
+  function curFailedCount(){
+    return S.daily ? (ATT.dy[S.dailyDate] || 0) : (ATT.lv[S.level] || 0);
+  }
+  // 当前这一局若已开始且未通关，离开/重建时记 1 次未通关尝试（每局只记一次）
+  function registerFail(){
+    if (!S.attemptActive) return;
+    S.attemptActive = false;
+    if (S.daily) ATT.dy[S.dailyDate] = (ATT.dy[S.dailyDate] || 0) + 1;
+    else ATT.lv[S.level] = (ATT.lv[S.level] || 0) + 1;
+    saveAtt();
+  }
+  function clearAttempts(){
+    if (S.daily){ if (ATT.dy[S.dailyDate] != null){ delete ATT.dy[S.dailyDate]; saveAtt(); } }
+    else if (ATT.lv[S.level] != null){ delete ATT.lv[S.level]; saveAtt(); }
   }
 
   /* ================= 每日关卡存档：最佳时间按 UTC 日期单独保存（键里带日期） =================
@@ -1565,6 +1609,686 @@
     return { bricks:bricks, steels:steels, total:total };
   }
 
+  /* ---- 中空图案关（31-35）通用构建 ----
+     图案区（mask）不放砖、四周一圈相邻格自动放深灰钢块描边；通道区（channel）同样
+     保持空、且不被描边钢块堵住；定点特殊砖（fixed）直接放进图案内部或墙面指定位置。
+     图案与布局均为原创简化线条，不照搬任何参考像素。 */
+  function rectMask(r0,r1,c0,c1){
+    var m = {};
+    for (var r=r0;r<=r1;r++) for (var c=c0;c<=c1;c++) m[key(r,c)] = true;
+    return m;
+  }
+  function mergeMasks(){
+    var m = {};
+    for (var i=0;i<arguments.length;i++){ for (var k in arguments[i]) m[k] = true; }
+    return m;
+  }
+  function channelMask(r0,r1,cols){
+    var m = {};
+    for (var r=r0;r<=r1;r++) cols.forEach(function(c){ m[key(r,c)] = true; });
+    return m;
+  }
+  function fixedOf(list){
+    var m = {};
+    list.forEach(function(rc){ m[key(rc[0],rc[1])] = { type: rc[2], hp: rc[3] || 1 }; });
+    return m;
+  }
+  function patternBuild(o){
+    var open = {}, k;
+    for (k in o.mask) open[k] = true;
+    if (o.channel) for (k in o.channel) open[k] = true;
+    var steels = {};
+    for (k in o.mask){
+      var parts = k.split(',');
+      var r = +parts[0], c = +parts[1];
+      for (var dr=-1; dr<=1; dr++) for (var dc=-1; dc<=1; dc++){
+        if (!dr && !dc) continue;
+        var nk = key(r+dr, c+dc);
+        if (!open[nk]) steels[nk] = true;
+      }
+    }
+    if (o.steelExtra) for (k in o.steelExtra) steels[k] = true;
+    return genericBuild({
+      seed: o.seed, r0:0, r1:23, c0:2, c1:27,
+      steelRow:25, sc0:2, sc1:27, gaps:o.gaps,
+      steelCells: steels, extra: o.fixed || null,
+      decide: function(r,c,rnd){
+        if (open[key(r,c)]) return null;
+        return rollType(rnd, o.table);
+      },
+      colorFor: o.colorFor
+    });
+  }
+
+  /* ---- 中空图案辅助（36-60 关用，全部原创几何） ---- */
+  function discMask(cr, cc, rad){
+    var m = {};
+    for (var r=0;r<=23;r++) for (var c=2;c<=27;c++){
+      var dr = r - cr, dc = c - cc;
+      if (dr*dr + dc*dc <= rad*rad) m[key(r,c)] = true;
+    }
+    return m;
+  }
+  function ellipseMask(cr, cc, rr, rc){
+    var m = {};
+    for (var r=0;r<=23;r++) for (var c=2;c<=27;c++){
+      var dr = (r - cr)/rr, dc = (c - cc)/rc;
+      if (dr*dr + dc*dc <= 1) m[key(r,c)] = true;
+    }
+    return m;
+  }
+  function polyMask(pts){
+    var m = {};
+    for (var r=0;r<=23;r++) for (var c=2;c<=27;c++){
+      var x = c, y = r, inside = false;
+      for (var i=0, j=pts.length-1; i<pts.length; j=i++){
+        var xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+        if (((yi > y) !== (yj > y)) && (x < (xj - xi)*(y - yi)/(yj - yi) + xi)) inside = !inside;
+      }
+      if (inside) m[key(r,c)] = true;
+    }
+    return m;
+  }
+  function maskSub(a, b){
+    var m = {};
+    for (var k in a) if (!b[k]) m[k] = true;
+    return m;
+  }
+
+  /* ---- 第 31 关：绿野机器人（绿色墙 + 中央机器人中空图案，底部中央 2 格竖通道） ----
+     机器人为原创简化线条：圆头（矩形圆角近似）+ 脖颈 + 身体 + 两条斜触角 + 两臂，
+     内部中空、四周钢块描边；身体里定点放 4 颗球砖。通道列14-15 从底部钢条直通身体。 */
+  function buildL31(){
+    var mask = mergeMasks(
+      rectMask(5,8,12,17),                 // 头
+      rectMask(9,11,13,16),               // 脖颈
+      rectMask(12,18,10,19),              // 身体
+      rectMask(12,15,7,8),                // 左臂
+      rectMask(12,15,21,22),              // 右臂
+      cellSet([[4,11],[3,10],[2,9],[1,8],[4,18],[3,19],[2,20],[1,21]])   // 两条触角
+    );
+    return patternBuild({
+      seed: 20261125, mask: mask,
+      channel: channelMask(19,23,[14,15]),
+      gaps: {14:true, 15:true},
+      fixed: fixedOf([[13,12,'ball'],[13,17,'ball'],[17,12,'ball'],[17,17,'ball']]),
+      table: [[0.05,'ball'],[0.08,'bomb'],[0.10,'beam'],[0.11,'widen']],
+      colorFor: function(r,c){ return grad([[146,222,92],[94,192,80],[52,160,70]], r/23); }   // 绿野
+    });
+  }
+
+  /* ---- 第 32 关：紫色 M（紫红墙 + 中央 M 字母中空图案，底部中央 3 格通道） ----
+     M 为原创简化线条：两条竖腿 + 中间 V 形斜线，中空、四周钢块描边；
+     通道列13-15 直通 V 形底端；两腿底部各定点放 1 颗球砖，墙面混装甲。 */
+  function buildL32(){
+    var vCells = [];
+    for (var vr=6; vr<=13; vr++){
+      var vc = 12 + Math.floor((vr-6)/2);
+      vCells.push([vr, vc]);
+      vCells.push([vr, 29 - vc]);
+    }
+    var mask = mergeMasks(
+      rectMask(6,19,9,11),                // 左腿
+      rectMask(6,19,18,20),               // 右腿
+      cellSet(vCells)                     // 中间 V 形
+    );
+    return patternBuild({
+      seed: 20261126, mask: mask,
+      channel: channelMask(14,23,[13,14,15]),
+      gaps: {13:true, 14:true, 15:true},
+      fixed: fixedOf([[18,10,'ball'],[18,19,'ball']]),
+      table: [[0.14,'armor',2],[0.19,'ball'],[0.22,'bomb']],
+      colorFor: function(r,c){ return grad([[216,64,160],[188,44,138],[156,32,116]], r/23); }   // 紫红
+    });
+  }
+
+  /* ---- 第 33 关：回字迷宫（深绿砖面 + 钢框 + 外围一圈黑色边框空道，顶部 2 格烟囱） ----
+     砖只在钢框内部；框外一圈全空，球先沿外圈空道绕到顶部，再从顶部中央烟囱
+     （列14-15、两侧列13/16 高钢壁）进入框内，烟囱正下方定点放球砖。 */
+  function buildL33(){
+    var frame = [];
+    var c, r;
+    for (c=4;c<=25;c++){ if (c !== 14 && c !== 15) frame.push([3,c]); frame.push([21,c]); }
+    for (r=4;r<=20;r++){ frame.push([r,4]); frame.push([r,25]); }
+    for (r=0;r<=2;r++){ frame.push([r,13]); frame.push([r,16]); }   // 烟囱两侧高钢壁
+    return genericBuild({
+      seed: 20261127, r0:0, r1:23, c0:2, c1:27,
+      steelRow:25, sc0:2, sc1:27, gaps:{14:true, 15:true},
+      steelCells: cellSet(frame),
+      extra: fixedOf([[4,14,'ball'],[4,15,'ball']]),
+      decide: function(r,c,rnd){
+        if (r >= 4 && r <= 20 && c >= 5 && c <= 24)
+          return rollType(rnd, [[0.06,'bomb'],[0.11,'beam'],[0.15,'ball']]);
+        return null;   // 框外边框空道与框外区域保持空
+      },
+      colorFor: function(r,c){ return grad([[64,168,96],[44,140,76],[30,116,60]], r/23); }   // 深绿
+    });
+  }
+
+  /* ---- 第 34 关：金色门洞（金黄墙 + 底部中央拱形门洞，门洞本身即入口） ----
+     门洞为原创拱形：顶部半圆拱（两行收窄）+ 两侧直壁，内部中空，侧与顶用钢块内衬；
+     门洞底部不封、直接朝场地开放，底部钢条在门洞列11-18 全部留空。门洞两侧各放球砖。 */
+  function buildL34(){
+    var mask = mergeMasks(
+      rectMask(14,23,11,18),              // 门洞主体
+      rectMask(13,13,12,17),              // 拱肩
+      rectMask(12,12,13,16)               // 拱顶
+    );
+    return patternBuild({
+      seed: 20261128, mask: mask,
+      channel: channelMask(24,24,[11,12,13,14,15,16,17,18]),   // 门洞正下方保持空，不被描边钢块封底
+      gaps: {11:true, 12:true, 13:true, 14:true, 15:true, 16:true, 17:true, 18:true},
+      fixed: fixedOf([[17,8,'ball'],[17,21,'ball']]),
+      table: [[0.05,'bomb'],[0.09,'widen'],[0.13,'ball']],
+      colorFor: function(r,c){ return grad([[255,216,64],[250,192,40],[238,168,24]], r/23); }   // 金黄
+    });
+  }
+
+  /* ---- 第 35 关：深绿 H（深绿墙 + 中央 H 字母中空图案，底部左右双通道） ----
+     H 为原创简化线条：两条竖腿 + 中间横杠，中空、四周钢块描边；横杠两端各放加宽砖。
+     入口与前面几关不同：底部左右双通道（左列10-11、右列17-18）分别直通 H 的两条腿。 */
+  function buildL35(){
+    var mask = mergeMasks(
+      rectMask(5,19,10,12),               // 左腿
+      rectMask(5,19,17,19),               // 右腿
+      rectMask(11,13,10,19)               // 中间横杠
+    );
+    return patternBuild({
+      seed: 20261129, mask: mask,
+      channel: mergeMasks(channelMask(20,23,[10,11]), channelMask(20,23,[17,18])),
+      gaps: {10:true, 11:true, 17:true, 18:true},
+      fixed: fixedOf([[12,10,'widen'],[12,19,'widen']]),
+      table: [[0.07,'ball'],[0.12,'beam'],[0.15,'bomb']],
+      colorFor: function(r,c){ return grad([[44,156,84],[34,130,66],[24,106,50]], r/23); }   // 深绿
+    });
+  }
+
+  /* ================= 36-60 关：中空图案风格（全部原创几何，不照搬任何参考像素） =================
+     难度分层：36-39 入门进阶（单腔室、入口 3-4 格、球砖多、装甲少）；
+     41-49 中等（入口 2 格、双腔室或隔墙、装甲适中、炸弹与光束搭配）；
+     51-59 较难（入口 1-2 格、隔断或钢迷宫、装甲与连锁更多，但入口正上方与
+     中空内都定点放球砖、内有加宽砖，保证有解）；40/50/60 为要塞。 */
+
+  /* ---- 第 36 关：叶子（竖椭圆叶身 + 叶尖，底部中央 4 格宽入口） ---- */
+  function buildL36(){
+    var mask = mergeMasks(
+      ellipseMask(11, 14.5, 8, 4.6),
+      cellSet([[2,14],[2,15],[19,14],[19,15]])
+    );
+    return patternBuild({
+      seed: 20261130, mask: mask,
+      channel: channelMask(20,23,[13,14,15,16]),
+      gaps: {13:true, 14:true, 15:true, 16:true},
+      fixed: fixedOf([[16,14,'ball'],[16,15,'ball'],[9,13,'ball']]),
+      table: [[0.12,'ball'],[0.15,'bomb'],[0.17,'beam'],[0.19,'widen']],
+      colorFor: function(r,c){ return grad([[190,230,110],[140,205,90],[90,175,80]], r/23); }   // 嫩绿 → 深绿
+    });
+  }
+
+  /* ---- 第 37 关：星星（五角星中空，底部左偏 3 格入口） ---- */
+  function buildL37(){
+    var mask = polyMask([[14.5,3.5],[17.3,8.9],[22.1,9.1],[16.2,12.9],[19.2,17.9],[14.5,13.6],[9.8,17.9],[12.8,12.9],[6.9,9.1],[11.7,8.9]]);
+    return patternBuild({
+      seed: 20261131, mask: mask,
+      channel: channelMask(15,23,[12,13,14]),
+      gaps: {12:true, 13:true, 14:true},
+      fixed: fixedOf([[11,14,'ball'],[15,10,'ball'],[15,19,'ball']]),
+      table: [[0.11,'ball'],[0.14,'bomb'],[0.16,'beam'],[0.175,'widen']],
+      colorFor: function(r,c){ return grad([[255,220,90],[250,190,60],[240,160,40]], r/23); }   // 金黄
+    });
+  }
+
+  /* ---- 第 38 关：月亮（月牙中空，右下 4 格宽入口） ---- */
+  function buildL38(){
+    var mask = maskSub(discMask(11.5, 13.5, 8.5), discMask(9, 17.5, 7));
+    return patternBuild({
+      seed: 20261132, mask: mask,
+      channel: channelMask(20,23,[16,17,18,19]),
+      gaps: {16:true, 17:true, 18:true, 19:true},
+      fixed: fixedOf([[17,12,'ball'],[10,9,'ball'],[14,10,'bomb']]),
+      table: [[0.10,'ball'],[0.13,'bomb'],[0.15,'beam'],[0.16,'widen'],[0.175,'armor',2]],
+      colorFor: function(r,c){ return grad([[240,235,200],[215,210,175],[180,178,150]], r/23); }   // 月白
+    });
+  }
+
+  /* ---- 第 39 关：房子（三角屋顶 + 屋身 + 门洞，底部 3 格入口直通门洞） ---- */
+  function buildL39(){
+    var mask = mergeMasks(
+      polyMask([[9.5,12],[19.5,12],[14.5,5]]),
+      rectMask(12,19,10,19),
+      rectMask(16,19,14,15)
+    );
+    return patternBuild({
+      seed: 20261133, mask: mask,
+      channel: channelMask(20,23,[14,15,16]),
+      gaps: {14:true, 15:true, 16:true},
+      fixed: fixedOf([[17,12,'ball'],[17,17,'ball'],[9,14,'ball']]),
+      table: [[0.11,'ball'],[0.14,'bomb'],[0.155,'beam'],[0.17,'widen']],
+      colorFor: function(r,c){ return grad([[240,170,90],[228,140,70],[205,110,55]], r/23); }   // 暖棕橙
+    });
+  }
+
+  /* ---- 第 40 关：城堡要塞（易进难出，中央漏斗 + 单主腔室，2 核心，发球 5 次） ----
+     漏斗向下张开：行25缺口列10-19（10格）→ 行24列11-18 → 行23列12-17 →
+     底墙外层行22列12-17（6格）→ 内层钢唇行21只留列13-16（4格）；
+     烟囱壁列12/17、行19-20。核心嵌在上部砖墙 (5,9) 与 (5,20)。 */
+  function buildL40(){
+    grid = blankGrid();
+    var bricks = [], steels = [];
+    var rnd = seeded(20261134);
+    var pal = ['#7a86a8','#6a76a0','#8a94b8','#5a6a94','#94a0c0'];   // 城堡石灰蓝
+    function isSteel(r,c){
+      if (r === 2 && c >= 3 && c <= 26) return true;
+      if ((c === 3 || c === 26) && r >= 3 && r <= 22) return true;
+      if (r === 22 && c >= 3 && c <= 26 && (c <= 11 || c >= 18)) return true;
+      if (r === 21 && c >= 3 && c <= 26 && (c <= 12 || c >= 17)) return true;
+      if ((c === 12 || c === 17) && (r === 19 || r === 20)) return true;
+      if (r === 23 && c >= 3 && c <= 26 && (c <= 11 || c >= 18)) return true;
+      if (r === 24 && c >= 3 && c <= 26 && (c <= 10 || c >= 19)) return true;
+      if (r === 25 && c >= 3 && c <= 26 && (c <= 9 || c >= 20)) return true;
+      return false;
+    }
+    function isThroat(r,c){ return r >= 18 && c >= 13 && c <= 16; }
+    function isInner(r,c){ return r >= 3 && r <= 20 && c >= 4 && c <= 25; }
+    for (var r=0;r<ROWS;r++){
+      for (var c=0;c<COLS;c++){
+        if (isSteel(r,c)){ putSteel(steels, r, c); continue; }
+        if (!isInner(r,c) || isThroat(r,c)) continue;
+        if ((r === 5 && c === 9) || (r === 5 && c === 20)){ putBrick(bricks, r, c, 'core', 1); continue; }
+        var fixed = { '17,14':'ball', '17,15':'ball', '13,9':'bomb', '13,20':'bomb', '10,14':'beam', '10,15':'beam' };
+        if (fixed[key(r,c)]){ putBrick(bricks, r, c, fixed[key(r,c)], 1); continue; }
+        var d = rollType(rnd, [[0.055,'ball'],[0.08,'bomb'],[0.09,'beam']]);
+        var nb = putBrick(bricks, r, c, d.type, d.hp);
+        if (nb.type === 'normal') nb.color = pal[Math.floor((r + c) / 5) % pal.length];
+      }
+    }
+    var total = 0;
+    bricks.forEach(function(b){ if (b.type !== 'core') total++; });
+    return { bricks:bricks, steels:steels, total:total };
+  }
+
+  /* ---- 第 41 关：字母 A（双腿 + 顶盖 + 横杠，右偏 2 格入口） ---- */
+  function buildL41(){
+    var mask = mergeMasks(
+      rectMask(6,19,10,12), rectMask(6,19,17,19),
+      rectMask(6,8,10,19), rectMask(12,14,10,19)
+    );
+    return patternBuild({
+      seed: 20261135, mask: mask,
+      channel: channelMask(20,23,[15,16]),
+      gaps: {15:true, 16:true},
+      fixed: fixedOf([[19,15,'ball'],[10,14,'ball'],[13,14,'widen']]),
+      table: [[0.16,'armor',2],[0.20,'ball'],[0.23,'bomb'],[0.25,'beam']],
+      colorFor: function(r,c){ return grad([[240,120,90],[232,95,70],[215,75,55]], r/23); }   // 珊瑚红
+    });
+  }
+
+  /* ---- 第 42 关：圆环（环形中空，中央留一块砖岛，左下 2 格入口） ---- */
+  function buildL42(){
+    var mask = maskSub(discMask(11.5, 14.5, 8.2), discMask(11.5, 14.5, 4.2));
+    return patternBuild({
+      seed: 20261136, mask: mask,
+      channel: channelMask(17,23,[9,10]),
+      gaps: {9:true, 10:true},
+      fixed: fixedOf([[16,9,'ball'],[7,18,'ball'],[11,7,'widen']]),
+      table: [[0.15,'armor',2],[0.19,'ball'],[0.215,'bomb'],[0.235,'beam']],
+      colorFor: function(r,c){ return grad([[90,200,220],[70,170,215],[55,140,205]], r/23); }   // 湖蓝
+    });
+  }
+
+  /* ---- 第 43 关：字母 S（横条与竖段拼成的 S 中空，右下 2 格入口） ---- */
+  function buildL43(){
+    var mask = mergeMasks(
+      rectMask(5,7,11,19), rectMask(8,11,11,13), rectMask(11,13,11,19),
+      rectMask(14,17,17,19), rectMask(17,19,11,19)
+    );
+    return patternBuild({
+      seed: 20261137, mask: mask,
+      channel: channelMask(20,23,[19,20]),
+      gaps: {19:true, 20:true},
+      fixed: fixedOf([[19,19,'ball'],[18,15,'ball'],[6,15,'bomb']]),
+      table: [[0.15,'armor',2],[0.195,'ball'],[0.22,'bomb'],[0.24,'beam']],
+      colorFor: function(r,c){ return grad([[170,120,230],[150,100,218],[130,82,200]], r/23); }   // 紫
+    });
+  }
+
+  /* ---- 第 44 关：蝴蝶双翼（左右双翼双腔室，左右双入口各 2 格） ---- */
+  function buildL44(){
+    var mask = mergeMasks(
+      ellipseMask(9.5, 9.5, 4.5, 4), ellipseMask(16, 9.5, 3.8, 3.4),
+      ellipseMask(9.5, 20, 4.5, 4), ellipseMask(16, 20, 3.8, 3.4),
+      rectMask(6,18,14,15)
+    );
+    return patternBuild({
+      seed: 20261138, mask: mask,
+      channel: mergeMasks(channelMask(19,23,[9,10]), channelMask(19,23,[19,20])),
+      gaps: {9:true, 10:true, 19:true, 20:true},
+      fixed: fixedOf([[9,9,'ball'],[9,20,'ball'],[16,10,'widen'],[16,19,'widen']]),
+      table: [[0.14,'armor',2],[0.19,'ball'],[0.22,'bomb'],[0.24,'beam']],
+      colorFor: function(r,c){ return grad([[245,150,190],[238,120,175],[225,95,155]], r/23); }   // 粉
+    });
+  }
+
+  /* ---- 第 45 关：双层迷宫（整墙砖面 + 两道钢隔墙错位开洞，右下 2 格入口） ---- */
+  function buildL45(){
+    var part = [];
+    var c;
+    for (c=4;c<=25;c++){ if (c !== 20 && c !== 21) part.push([11,c]); }        // 横隔墙，洞在右
+    for (c=12;c<=20;c++){ if (c !== 17) part.push([c,8]); }                    // 竖隔墙，洞在中
+    return genericBuild({
+      seed: 20261139, r0:0, r1:23, c0:2, c1:27,
+      steelRow:25, sc0:2, sc1:27, gaps:{21:true, 22:true},
+      steelCells: cellSet(part),
+      extra: fixedOf([[22,21,'ball'],[6,10,'ball'],[16,20,'ball'],[12,6,'bomb'],[4,22,'beam']]),
+      decide: function(r,c,rnd){
+        return rollType(rnd, [[0.15,'armor',2],[0.19,'ball'],[0.22,'bomb'],[0.24,'beam']]);
+      },
+      colorFor: function(r,c){ return grad([[70,180,190],[55,155,180],[42,130,168]], r/23); }   // 青蓝
+    });
+  }
+
+  /* ---- 第 46 关：钻石（菱形中空，底部尖端左偏 2 格入口） ---- */
+  function buildL46(){
+    var mask = polyMask([[14.5,3],[21.5,10],[14.5,20],[7.5,10]]);
+    return patternBuild({
+      seed: 20261140, mask: mask,
+      channel: channelMask(21,23,[13,14]),
+      gaps: {13:true, 14:true},
+      fixed: fixedOf([[17,14,'ball'],[17,15,'ball'],[10,14,'widen']]),
+      table: [[0.16,'armor',3],[0.20,'ball'],[0.225,'bomb'],[0.245,'beam']],
+      colorFor: function(r,c){ return grad([[190,235,245],[160,220,238],[130,200,228]], r/23); }   // 冰晶蓝白
+    });
+  }
+
+  /* ---- 第 47 关：雨伞（半圆伞盖 + 伞柄中空，柄底 2 格入口） ---- */
+  function buildL47(){
+    var dm = discMask(11, 14.5, 7.5), canopy = {}, k;
+    for (k in dm){ if (+k.split(',')[0] <= 11) canopy[k] = true; }
+    var mask = mergeMasks(canopy, rectMask(11,19,14,15), rectMask(18,19,12,13));
+    return patternBuild({
+      seed: 20261141, mask: mask,
+      channel: channelMask(20,23,[14,15]),
+      gaps: {14:true, 15:true},
+      fixed: fixedOf([[8,12,'ball'],[8,17,'ball'],[15,14,'widen']]),
+      table: [[0.15,'armor',2],[0.195,'ball'],[0.22,'beam'],[0.235,'bomb']],
+      colorFor: function(r,c){ return grad([[240,105,120],[232,85,105],[218,65,90]], r/23); }   // 红
+    });
+  }
+
+  /* ---- 第 48 关：帆船（双帆 + 船身中空，船身左下 2 格入口） ---- */
+  function buildL48(){
+    var mask = mergeMasks(
+      polyMask([[8,16],[21,16],[19,20],[10,20]]),
+      rectMask(5,15,14,14),
+      polyMask([[15.5,6],[15.5,14],[21,14]]),
+      polyMask([[13.5,8],[13.5,14],[8,14]])
+    );
+    return patternBuild({
+      seed: 20261142, mask: mask,
+      channel: channelMask(21,23,[11,12]),
+      gaps: {11:true, 12:true},
+      fixed: fixedOf([[18,12,'ball'],[11,17,'ball'],[18,17,'widen']]),
+      table: [[0.15,'armor',2],[0.19,'ball'],[0.215,'beam'],[0.23,'bomb']],
+      colorFor: function(r,c){ return grad([[100,170,235],[80,150,225],[60,125,210]], r/23); }   // 海蓝
+    });
+  }
+
+  /* ---- 第 49 关：花朵（五瓣 + 花心 + 花茎中空，右瓣下 2 格入口） ---- */
+  function buildL49(){
+    var mask = mergeMasks(
+      discMask(11, 14.5, 3),
+      discMask(5.5, 14.5, 3.2), discMask(9, 19.5, 3.2), discMask(15.5, 18, 3.2),
+      discMask(15.5, 11, 3.2), discMask(9, 9.5, 3.2),
+      rectMask(14,21,14,15)
+    );
+    return patternBuild({
+      seed: 20261143, mask: mask,
+      channel: channelMask(19,23,[16,17]),
+      gaps: {16:true, 17:true},
+      fixed: fixedOf([[11,14,'ball'],[15,18,'ball'],[19,14,'widen']]),
+      table: [[0.16,'armor',2],[0.20,'ball'],[0.23,'bomb'],[0.245,'beam']],
+      colorFor: function(r,c){ return grad([[250,170,200],[245,140,180],[235,110,160]], r/23); }   // 花粉
+    });
+  }
+
+  /* ---- 第 50 关：大腔室要塞（易进难出，左侧宽漏斗 + 更大单腔室，2 核心，发球 5 次） ----
+     腔室比第 40 关更宽（内腔列3-26）。漏斗偏左：行25缺口列2-11（10格）→ 行24列3-10
+     → 行23列4-9 → 底墙外层行22列5-8（4格）→ 内层钢唇行21只留列6-7（2格）；
+     烟囱壁列5/8、行19-20。核心嵌在上部砖墙 (5,8) 与 (5,21)。 */
+  function buildL50(){
+    grid = blankGrid();
+    var bricks = [], steels = [];
+    var rnd = seeded(20261144);
+    var pal = ['#2f8fb0','#38a6d9','#2ac2b5','#3f7fe0','#57c785'];   // 青蓝绿大腔室
+    function isSteel(r,c){
+      if (r === 2 && c >= 2 && c <= 27) return true;
+      if ((c === 2 || c === 27) && r >= 3 && r <= 22) return true;
+      if (r === 22 && c >= 2 && c <= 27 && (c <= 4 || c >= 9)) return true;
+      if (r === 21 && c >= 2 && c <= 27 && (c <= 5 || c >= 8)) return true;
+      if ((c === 5 || c === 8) && (r === 19 || r === 20)) return true;
+      if (r === 23 && c >= 2 && c <= 27 && (c <= 3 || c >= 10)) return true;
+      if (r === 24 && c >= 2 && c <= 27 && (c <= 2 || c >= 11)) return true;
+      if (r === 25 && c >= 2 && c <= 27 && c >= 12) return true;
+      return false;
+    }
+    function isThroat(r,c){ return r >= 17 && c >= 6 && c <= 7; }
+    function isInner(r,c){ return r >= 3 && r <= 20 && c >= 3 && c <= 26; }
+    for (var r=0;r<ROWS;r++){
+      for (var c=0;c<COLS;c++){
+        if (isSteel(r,c)){ putSteel(steels, r, c); continue; }
+        if (!isInner(r,c) || isThroat(r,c)) continue;
+        if ((r === 5 && c === 8) || (r === 5 && c === 21)){ putBrick(bricks, r, c, 'core', 1); continue; }
+        var fixed = { '16,6':'ball', '16,7':'ball', '12,10':'bomb', '12,19':'bomb', '9,14':'beam', '9,15':'beam' };
+        if (fixed[key(r,c)]){ putBrick(bricks, r, c, fixed[key(r,c)], 1); continue; }
+        var d = rollType(rnd, [[0.055,'ball'],[0.08,'bomb'],[0.09,'beam']]);
+        var nb = putBrick(bricks, r, c, d.type, d.hp);
+        if (nb.type === 'normal') nb.color = pal[Math.floor((r + c) / 5) % pal.length];
+      }
+    }
+    var total = 0;
+    bricks.forEach(function(b){ if (b.type !== 'core') total++; });
+    return { bricks:bricks, steels:steels, total:total };
+  }
+
+  /* ---- 第 51 关：字母 B（竖柄 + 双凸肚中空，肚底 2 格入口，入口正上方定点球砖） ---- */
+  function buildL51(){
+    var mask = mergeMasks(
+      rectMask(5,19,9,11), rectMask(5,11,12,17), rectMask(12,19,12,18)
+    );
+    return patternBuild({
+      seed: 20261145, mask: mask,
+      channel: channelMask(20,23,[13,14]),
+      gaps: {13:true, 14:true},
+      fixed: fixedOf([[17,13,'ball'],[17,14,'ball'],[8,14,'ball'],[15,16,'widen']]),
+      table: [[0.20,'armor',3],[0.24,'ball'],[0.27,'bomb'],[0.285,'beam']],
+      colorFor: function(r,c){ return grad([[235,160,80],[228,140,60],[215,118,45]], r/23); }   // 琥珀
+    });
+  }
+
+  /* ---- 第 52 关：字母 K（竖柄 + 双斜臂中空，右臂尖下 2 格入口） ---- */
+  function buildL52(){
+    var arms = [];
+    var r;
+    for (r=5;r<=12;r++) arms.push([r, 18-(r-5)]);
+    for (r=13;r<=19;r++) arms.push([r, 12+(r-13)]);
+    var mask = mergeMasks(rectMask(5,19,9,11), cellSet(arms));
+    return patternBuild({
+      seed: 20261146, mask: mask,
+      channel: channelMask(20,23,[19,20]),
+      gaps: {19:true, 20:true},
+      fixed: fixedOf([[19,18,'ball'],[6,17,'ball'],[12,10,'widen']]),
+      table: [[0.20,'armor',2],[0.235,'ball'],[0.265,'beam'],[0.28,'bomb']],
+      colorFor: function(r,c){ return grad([[90,190,160],[70,170,145],[52,148,128]], r/23); }   // 青绿
+    });
+  }
+
+  /* ---- 第 53 关：皇冠（三尖冠身中空，冠底中央 2 格入口） ---- */
+  function buildL53(){
+    var mask = mergeMasks(
+      rectMask(12,19,8,21),
+      polyMask([[8,12],[11.5,12],[9.8,6]]),
+      polyMask([[13,12],[16,12],[14.5,5]]),
+      polyMask([[17.5,12],[21,12],[19.2,6]])
+    );
+    return patternBuild({
+      seed: 20261147, mask: mask,
+      channel: channelMask(20,23,[14,15]),
+      gaps: {14:true, 15:true},
+      fixed: fixedOf([[17,11,'ball'],[17,18,'ball'],[15,14,'widen']]),
+      table: [[0.21,'armor',3],[0.25,'ball'],[0.275,'bomb'],[0.29,'beam']],
+      colorFor: function(r,c){ return grad([[255,205,70],[248,185,50],[238,160,35]], r/23); }   // 皇冠金
+    });
+  }
+
+  /* ---- 第 54 关：齿轮（圆盘 + 八齿 + 中心孔中空，左齿下 2 格入口） ---- */
+  function buildL54(){
+    var teeth = mergeMasks(
+      rectMask(3,5,13,16), rectMask(18,20,13,16), rectMask(10,12,5,7), rectMask(10,12,22,24),
+      rectMask(5,7,8,10), rectMask(5,7,19,21), rectMask(16,18,8,10), rectMask(16,18,19,21)
+    );
+    var mask = maskSub(mergeMasks(discMask(11.5, 14.5, 6.5), teeth), discMask(11.5, 14.5, 2.8));
+    return patternBuild({
+      seed: 20261148, mask: mask,
+      channel: channelMask(21,23,[12,13]),
+      gaps: {12:true, 13:true},
+      fixed: fixedOf([[16,17,'ball'],[7,12,'ball'],[11,18,'widen']]),
+      table: [[0.20,'armor',2],[0.24,'ball'],[0.265,'beam'],[0.28,'bomb']],
+      colorFor: function(r,c){ return grad([[170,180,195],[150,160,178],[128,140,160]], r/23); }   // 钢银灰
+    });
+  }
+
+  /* ---- 第 55 关：三层迷宫（整墙砖面 + 三层钢隔墙交错开洞，右下 2 格入口） ---- */
+  function buildL55(){
+    var part = [];
+    var c;
+    for (c=3;c<=26;c++){ if (c !== 7 && c !== 8) part.push([7,c]); }          // 第一层，洞在左
+    for (c=3;c<=26;c++){ if (c !== 21 && c !== 22) part.push([15,c]); }       // 第二层，洞在右
+    return genericBuild({
+      seed: 20261149, r0:0, r1:23, c0:2, c1:27,
+      steelRow:25, sc0:2, sc1:27, gaps:{18:true, 19:true},
+      steelCells: cellSet(part),
+      extra: fixedOf([[22,18,'ball'],[11,14,'ball'],[3,20,'ball'],[11,22,'beam'],[3,6,'bomb'],[19,8,'widen']]),
+      decide: function(r,c,rnd){
+        return rollType(rnd, [[0.20,'armor',3],[0.24,'ball'],[0.265,'bomb'],[0.28,'beam']]);
+      },
+      colorFor: function(r,c){ return grad([[120,110,190],[105,95,175],[90,80,158]], r/23); }   // 靛紫
+    });
+  }
+
+  /* ---- 第 56 关：双子塔（双塔 + 顶部连桥双腔室，塔底双入口各 2 格） ---- */
+  function buildL56(){
+    var mask = mergeMasks(
+      rectMask(4,19,7,12), rectMask(4,19,17,22), rectMask(4,6,7,22)
+    );
+    return patternBuild({
+      seed: 20261150, mask: mask,
+      channel: mergeMasks(channelMask(20,23,[9,10]), channelMask(20,23,[19,20])),
+      gaps: {9:true, 10:true, 19:true, 20:true},
+      fixed: fixedOf([[16,9,'ball'],[16,20,'ball'],[5,14,'widen'],[12,9,'bomb'],[12,20,'beam']]),
+      table: [[0.19,'armor',2],[0.23,'ball'],[0.26,'bomb'],[0.275,'beam']],
+      colorFor: function(r,c){ return grad([[80,160,220],[65,140,205],[50,120,188]], r/23); }   // 天蓝
+    });
+  }
+
+  /* ---- 第 57 关：旋涡隔断（圆盘中空 + 盘内错位钢隔断，底部 2 格入口） ---- */
+  function buildL57(){
+    var mask = discMask(11.5, 14.5, 8.5);
+    return patternBuild({
+      seed: 20261151, mask: mask,
+      channel: channelMask(20,23,[13,14]),
+      gaps: {13:true, 14:true},
+      steelExtra: cellSet([[11,8],[11,9],[11,10],[11,11],[11,12],[11,13],[12,16],[12,17],[12,18],[12,19],[12,20],[12,21]]),
+      fixed: fixedOf([[17,13,'ball'],[6,11,'ball'],[7,18,'widen']]),
+      table: [[0.20,'armor',3],[0.235,'ball'],[0.26,'beam'],[0.275,'bomb']],
+      colorFor: function(r,c){
+        var dr = r - 11.5, dc = c - 14.5;
+        var ang = Math.atan2(dr, dc); if (ang < 0) ang += Math.PI * 2;
+        var rad = Math.sqrt(dr*dr + dc*dc);
+        return ['#8a5ae8','#f06ab8','#4f8fe8'][((Math.floor(ang/(Math.PI*2)*3 + rad*0.35) % 3) + 3) % 3];
+      }
+    });
+  }
+
+  /* ---- 第 58 关：迷宫回廊（钢框回廊 + 框内隔墙分区，左下 2 格入口穿框而入） ---- */
+  function buildL58(){
+    var frame = [];
+    var c, r;
+    for (c=4;c<=25;c++){ frame.push([3,c]); if (c !== 10 && c !== 11) frame.push([21,c]); }
+    for (r=4;r<=20;r++){ frame.push([r,4]); frame.push([r,25]); }
+    for (c=5;c<=18;c++) frame.push([12,c]);                                  // 框内横隔墙
+    for (r=12;r<=20;r++) frame.push([r,18]);                                 // 框内竖隔墙
+    return genericBuild({
+      seed: 20261152, r0:0, r1:23, c0:2, c1:27,
+      steelRow:25, sc0:2, sc1:27, gaps:{10:true, 11:true},
+      steelCells: cellSet(frame),
+      extra: fixedOf([[20,10,'ball'],[6,20,'ball'],[16,8,'widen'],[6,8,'bomb']]),
+      decide: function(r,c,rnd){
+        if (r >= 4 && r <= 20 && c >= 5 && c <= 24)
+          return rollType(rnd, [[0.20,'armor',2],[0.24,'ball'],[0.265,'bomb'],[0.28,'beam']]);
+        return null;   // 框外保持空，球沿框外回廊绕行到入口
+      },
+      colorFor: function(r,c){ return grad([[90,170,110],[72,150,92],[55,130,75]], r/23); }   // 苔绿
+    });
+  }
+
+  /* ---- 第 59 关：终局前哨（中央堡垒 + 双侧塔楼中空，堡底单格窄入口） ---- */
+  function buildL59(){
+    var mask = mergeMasks(
+      rectMask(8,19,11,18), rectMask(5,19,5,8), rectMask(5,19,21,24), rectMask(5,7,5,24)
+    );
+    return patternBuild({
+      seed: 20261153, mask: mask,
+      channel: channelMask(20,23,[15]),
+      gaps: {15:true},
+      fixed: fixedOf([[17,15,'ball'],[10,13,'widen'],[10,17,'bomb'],[16,6,'ball'],[16,23,'ball']]),
+      table: [[0.21,'armor',3],[0.245,'ball'],[0.27,'bomb'],[0.285,'beam']],
+      colorFor: function(r,c){ return grad([[200,90,80],[185,75,68],[168,60,55]], r/23); }   // 暗红
+    });
+  }
+
+  /* ---- 第 60 关：星核要塞（最终要塞：中央 8 格超宽漏斗 + 大腔室 + 三个中空子图案，3 核心，发球 6 次） ----
+     漏斗：行25缺口列8-21（14格）→ 行24列9-20 → 行23列10-19 → 底墙外层行22列11-18
+     （8格）→ 内层钢唇行21只留列13-16（4格）；烟囱壁列12/17、行19-20。
+     腔内留三个圆形中空子图案（球可钻入子腔打砖）。核心 (6,8)、(6,15)、(6,21)。 */
+  function buildL60(){
+    grid = blankGrid();
+    var bricks = [], steels = [];
+    var rnd = seeded(20261154);
+    var pal = ['#4f6fe8','#6a5ae0','#38a6d9','#8a6ae8','#3f8fe0'];
+    var hole1 = discMask(9, 9, 2.6), hole2 = discMask(9, 20, 2.6), hole3 = discMask(16, 9, 2.6);
+    function isHole(r,c){ var k = key(r,c); return hole1[k] || hole2[k] || hole3[k]; }
+    function isSteel(r,c){
+      if (r === 2 && c >= 2 && c <= 27) return true;
+      if ((c === 2 || c === 27) && r >= 3 && r <= 22) return true;
+      if (r === 22 && c >= 2 && c <= 27 && (c <= 10 || c >= 19)) return true;
+      if (r === 21 && c >= 2 && c <= 27 && (c <= 12 || c >= 17)) return true;
+      if ((c === 12 || c === 17) && (r === 19 || r === 20)) return true;
+      if (r === 23 && c >= 2 && c <= 27 && (c <= 9 || c >= 20)) return true;
+      if (r === 24 && c >= 2 && c <= 27 && (c <= 8 || c >= 21)) return true;
+      if (r === 25 && c >= 2 && c <= 27 && (c <= 7 || c >= 22)) return true;
+      return false;
+    }
+    function isThroat(r,c){ return r >= 17 && c >= 13 && c <= 16; }
+    function isInner(r,c){ return r >= 3 && r <= 20 && c >= 3 && c <= 26; }
+    for (var r=0;r<ROWS;r++){
+      for (var c=0;c<COLS;c++){
+        if (isSteel(r,c)){ putSteel(steels, r, c); continue; }
+        if (!isInner(r,c) || isThroat(r,c) || isHole(r,c)) continue;
+        if ((r === 6 && c === 8) || (r === 6 && c === 15) || (r === 6 && c === 21)){ putBrick(bricks, r, c, 'core', 1); continue; }
+        var fixed = { '16,14':'ball', '16,15':'ball', '12,8':'bomb', '12,21':'bomb', '9,14':'beam', '9,15':'beam' };
+        if (fixed[key(r,c)]){ putBrick(bricks, r, c, fixed[key(r,c)], 1); continue; }
+        var d = rollType(rnd, [[0.055,'ball'],[0.08,'bomb'],[0.09,'beam']]);
+        var nb = putBrick(bricks, r, c, d.type, d.hp);
+        if (nb.type === 'normal'){
+          nb.color = ((r * 7 + c) % 13 === 0) ? '#c9a227' : pal[Math.floor((r + c) / 5) % pal.length];
+        }
+      }
+    }
+    var total = 0;
+    bricks.forEach(function(b){ if (b.type !== 'core') total++; });
+    return { bricks:bricks, steels:steels, total:total };
+  }
+
   /* ---- 每日关卡：UTC 日期字符串做确定性种子，种子决定图案模板、入口位置与形状、特殊砖侧重点 ----
      同一天打开布局完全相同，过了 UTC 零点换新关。砖量控制在 200-800 块之间；
      底部钢条必有缺口，缺口正上方有砖、墙心有定点连锁区（球砖/炸弹/光束），
@@ -1754,7 +2478,67 @@
     { name:'时光沙漏', speed:458, paddle:76, serves:0, types:T_ALL, build:buildL29,
       desc:'金沙色的砖上下宽、中间收成细腰，拼成一只沙漏。入口是中央的窄烟囱，上宽下窄、底部只有两格。光束和炸弹是这一关的主角。' },
     { name:'最终要塞·星核', speed:430, paddle:76, serves:6, cores:3, types:['normal','ball','bomb','beam','steel','core'], build:buildL30,
-      desc:'最终要塞比前两座都大：中央开着八格宽的超大漏斗，挡板正中竖直发球就能直接进去，进去后钢唇收口，球会在蓝紫与金色的大腔室里连着打砖。三个金色核心分别嵌在左上、中上、右上的砖墙里，全部打碎才算通关。发球上限 6 次，用完要塞会重建，已通关的关卡不会丢。' }
+      desc:'最终要塞比前两座都大：中央开着八格宽的超大漏斗，挡板正中竖直发球就能直接进去，进去后钢唇收口，球会在蓝紫与金色的大腔室里连着打砖。三个金色核心分别嵌在左上、中上、右上的砖墙里，全部打碎才算通关。发球上限 6 次，用完要塞会重建，已通关的关卡不会丢。' },
+    { name:'绿野机器人', speed:462, paddle:76, serves:0, types:['normal','ball','bomb','beam','widen','steel'], build:buildL31,
+      desc:'整面墙是绿色的，中央留着一个黑色的机器人图案：圆头、身体、两条触角和两臂都是中空的，四周用深灰钢块描边，身体里藏着 4 颗球砖。入口在底部钢条正中、只有两格宽，一条竖直通道直通机器人的身体——把球从通道送进去，就能在机器人肚子里放出多球连锁，墙面还混着少量炸弹和光束。' },
+    { name:'紫色 M', speed:466, paddle:76, serves:0, types:['normal','armor','ball','bomb','steel'], build:buildL32,
+      desc:'紫红色的墙中央留着一个黑色的 M 字母图案：两条竖腿加中间的 V 形都是中空的，四周用钢块描边，两腿底部各藏着一颗球砖。入口在底部中央，三格宽的通道直通 M 中部 V 形的底端。墙里混着不少灰色装甲砖，要多打几下才碎。' },
+    { name:'回字迷宫', speed:470, paddle:76, serves:0, types:['normal','bomb','beam','ball','steel'], build:buildL33,
+      desc:'深绿色的砖面被一圈钢框围住，钢框外留着一圈黑色的边框空道。入口不在墙底：先沿外圈空道绕到顶部，再从顶部中央两格宽的烟囱钻进框内，烟囱两侧是高钢壁。烟囱正下方就放着球砖，进去第一下就能放出连锁，墙面混着炸弹和光束。' },
+    { name:'金色门洞', speed:474, paddle:76, serves:0, types:['normal','bomb','widen','ball','steel'], build:buildL34,
+      desc:'金黄色的墙底部中央留着一个拱形门洞，门洞两侧和顶部用钢块做了内衬，门洞不封底、直接朝场地敞开，门洞本身就是入口：球从下方直接钻进门洞，在洞里反弹着打周围的黄砖。门洞两侧各藏着一颗球砖，墙里还混着少量炸弹和加宽砖。' },
+    { name:'深绿 H', speed:478, paddle:76, serves:0, types:['normal','ball','beam','bomb','widen','steel'], build:buildL35,
+      desc:'深绿色的墙中央留着一个黑色的 H 字母图案：两条竖腿加中间一道横杠都是中空的，四周用钢块描边，横杠两端各放着一颗加宽砖。入口是底部左右两条通道，各两格宽，分别直通 H 的两条腿，从哪边进都行。墙面混着球砖和光束。' },
+    { name:'叶子', speed:472, paddle:76, serves:0, types:['normal','ball','bomb','beam','widen','steel'], build:buildL36,
+      desc:'嫩绿的墙中央留着一片黑色的叶子：椭圆叶身、叶尖和叶柄都是中空的，四周钢块描边，叶身里藏着 3 颗球砖。入口在底部中央、四格宽，是这一段最宽的入口之一，先在这里熟悉从中空内部打砖的手感。装甲很少，放心连锁。' },
+    { name:'星星', speed:476, paddle:76, serves:0, types:['normal','ball','bomb','beam','widen','steel'], build:buildL37,
+      desc:'金黄的墙中央悬着一颗黑色的五角星，五个尖角都是中空的，星心里和两个下角各藏着一颗球砖。入口在底部偏左、三格宽，通道对着星星的下角。难度只比叶子高一点点，球砖依然很多。' },
+    { name:'月亮', speed:480, paddle:76, serves:0, types:['normal','ball','bomb','beam','widen','armor','steel'], build:buildL38,
+      desc:'月白色的墙中央弯着一弯黑色的月牙，月牙两端尖、中间鼓，内部中空，藏着球砖和一颗炸弹。入口在右下、四格宽，顺着月牙的下尖钻进去。墙里开始出现少量灰色装甲砖，要多打一下，但数量不多。' },
+    { name:'房子', speed:484, paddle:76, serves:0, types:['normal','ball','bomb','beam','widen','steel'], build:buildL39,
+      desc:'暖棕色的墙中央立着一栋黑色的小房子：三角屋顶、方屋身，屋身正中还有一扇中空的门，门里和屋顶下都藏着球砖。入口在底部、三格宽，通道正对房门，从门进去就能在屋里放出连锁。' },
+    { name:'城堡要塞', speed:478, paddle:76, serves:5, cores:2, types:['normal','ball','bomb','beam','steel','core'], build:buildL40,
+      desc:'第四座要塞像一座石灰蓝的城堡：钢框围成一个主腔室，底部中央是向下张开的宽漏斗，挡板正中竖直发球就能进去，内侧钢唇把出口收窄，球进去后会在腔里多弹几圈。两个金色核心嵌在上部砖墙的左右两端，全部打碎才获胜。发球只有 5 次，用完要塞会重建，已通关的关卡不会丢。' },
+    { name:'字母 A', speed:488, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL41,
+      desc:'珊瑚红的墙中央留着一个黑色的 A：两条腿、顶盖和横杠围出上下两个中空，上腔里藏着球砖，横杠上还有一颗加宽砖。入口收窄到两格、在底部偏右，通道口正上方就有一颗球砖，进门第一下就能放球。装甲开始变多，先点连锁再啃硬砖。' },
+    { name:'圆环', speed:492, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL42,
+      desc:'湖蓝的墙中央浮着一个黑色的圆环，环带中空，环心还留着一座小砖岛。入口在左下、两格宽，通道对着环带的左下段，环里藏着球砖，环顶还有一颗加宽砖。球进了环带会沿着圈内壁滚动着打砖，别急着追球。' },
+    { name:'字母 S', speed:496, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','steel'], build:buildL43,
+      desc:'紫色的墙中央盘着一个黑色的 S：上下两个弯钩都是中空的，上钩藏着炸弹，下钩藏着球砖。入口在右下、两格宽，通道口正上方就是球砖。S 的弯道会把球引向意想不到的方向，装甲适中，靠炸弹和光束开路最省力。' },
+    { name:'蝴蝶', speed:500, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL44,
+      desc:'粉色的墙中央停着一只黑色的蝴蝶：左右四片翅膀是四个分开的中空腔室，身体把它们连在一起，上翼各藏球砖，下翼各藏加宽砖。底部左右两个入口各两格宽，分别通向两片下翼，可以从任意一侧先开一翼，再借身体里的连锁打通另一侧。' },
+    { name:'双层迷宫', speed:504, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','steel'], build:buildL45,
+      desc:'青蓝的砖铺满整面墙，中间横着一道钢隔墙把墙分成上下两层，隔墙的洞开在右侧；下层还有一道竖钢墙，洞开在中间。入口在右下、两格宽，正上方定点放着球砖。先在下层点起连锁，再顺着两个洞口逐层往上打。' },
+    { name:'钻石', speed:508, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL46,
+      desc:'冰晶色的墙中央嵌着一颗黑色的钻石，菱形内部中空，底部尖端藏着两颗球砖，正中还有一颗加宽砖。入口在底部尖端偏左、两格宽。钻石里的装甲更硬，要打三下，优先用炸弹和光束招呼它们。' },
+    { name:'雨伞', speed:512, paddle:76, serves:0, types:['normal','armor','ball','beam','bomb','widen','steel'], build:buildL47,
+      desc:'红色的墙中央撑着一把黑色的雨伞：半圆伞盖下是一根中空的伞柄，伞盖里左右各藏一颗球砖，伞柄上有一颗加宽砖。入口就在伞柄底部、两格宽，顺着伞柄直上伞盖。光束在这关唱主角，一束能顺着伞盖横扫一排。' },
+    { name:'帆船', speed:516, paddle:76, serves:0, types:['normal','armor','ball','beam','bomb','widen','steel'], build:buildL48,
+      desc:'海蓝的墙中央驶着一艘黑色的帆船：两面三角帆和梯形船身都是中空的，船身里藏着球砖和加宽砖，大帆里也有一颗球砖。入口在船身左下、两格宽。先打船身攒球，再让多球去拆两面帆。' },
+    { name:'花朵', speed:520, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL49,
+      desc:'花粉色的墙中央开着一朵黑色的花：五片花瓣围着花心，花心和右下花瓣各藏一颗球砖，花茎上有一颗加宽砖。入口在右下花瓣下方、两格宽。花瓣彼此分开，要靠钢描边的反弹和连锁逐瓣打通，是中等段最后一关的小考验。' },
+    { name:'大腔室要塞', speed:512, paddle:76, serves:5, cores:2, types:['normal','ball','bomb','beam','steel','core'], build:buildL50,
+      desc:'第五座要塞比城堡更大：青蓝绿的腔室横贯整面墙，入口换到了左侧——宽漏斗从底部向左张开，进去后钢唇把出口收窄到两格，球会在大腔室里弹得更久。两个金色核心分别嵌在左上和右上的砖墙里，全部打碎才获胜。发球只有 5 次，用完要塞会重建，已通关的关卡不会丢。' },
+    { name:'字母 B', speed:524, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL51,
+      desc:'琥珀色的墙中央留着一个黑色的 B：竖柄连着上下两个鼓肚，肚里都藏着球砖，下肚还有一颗加宽砖。入口在下肚底部、两格宽，正上方连着两颗定点球砖——从这里开始装甲更硬、连锁更多，但每一关都给你留了进门就放球的起点，不会进得去却打不动。' },
+    { name:'字母 K', speed:528, paddle:76, serves:0, types:['normal','armor','ball','beam','bomb','widen','steel'], build:buildL52,
+      desc:'青绿的墙中央立着一个黑色的 K：竖柄加两条斜臂，臂尖各藏一颗球砖，柄上有一颗加宽砖。入口在右下斜臂的尖端下方、两格宽，进门第一颗砖就是球砖。斜臂会把球弹向对角，想要的角度要提前半拍。' },
+    { name:'皇冠', speed:532, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL53,
+      desc:'金黄的墙中央戴着一顶黑色的皇冠：三个尖顶立在冠身上，冠身里左右各藏一颗球砖，正中有一颗加宽砖。入口在冠身底部中央、两格宽。冠身的装甲要打三下，先打碎球砖放出多球，再围攻硬砖。' },
+    { name:'齿轮', speed:536, paddle:76, serves:0, types:['normal','armor','ball','beam','bomb','widen','steel'], build:buildL54,
+      desc:'钢银灰的墙中央嵌着一枚黑色的齿轮：圆盘伸出八个齿，中心还留着一个圆孔，盘里藏着球砖和加宽砖。入口在左下齿的下方、两格宽。球进了齿盘会在齿间来回磕碰，光束能顺着圆盘的直径一次清掉一整排。' },
+    { name:'三层迷宫', speed:540, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL55,
+      desc:'靛紫的砖铺满整面墙，两道钢隔墙把墙切成三层：下层的洞在右，中层的洞在左，入口在右下、两格宽，正上方、每层转弯处都定点放了球砖，逐层往上都有连锁接力。装甲不少，但别慌，这一关考的是耐心，不是手速。' },
+    { name:'双子塔', speed:544, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL56,
+      desc:'天蓝的墙上立着两座黑色的高塔，塔顶由一座连桥接通，桥下是空的。两座塔各有自己的中空塔身，各藏一颗球砖，左塔有炸弹、右塔有光束，桥上还有一颗加宽砖。底部双入口各两格宽，分别通向两座塔底——先攻一座，再借连桥打通另一座。' },
+    { name:'旋涡隔断', speed:548, paddle:76, serves:0, types:['normal','armor','ball','beam','bomb','widen','steel'], build:buildL57,
+      desc:'紫粉蓝三色旋进一个大圆盘，盘心是中空的，盘内错落着两道钢隔断，只留中央一条缝相通。入口在盘底、两格宽，正上方定点放着球砖，上半盘还藏着加宽砖。球要穿过中央缝才能打到上半盘，隔断边缘的反弹角很刁，多利用描边借力。' },
+    { name:'迷宫回廊', speed:552, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL58,
+      desc:'苔绿的砖面被一圈钢框围住，框内还有横竖两道隔墙把内部分成几个小间，框外留着一圈回廊空道。入口在左下、两格宽，穿过框底就进内间，正上方定点放着球砖，最远的小间里还藏着加宽砖。先沿回廊摸清框形，再逐间清理。' },
+    { name:'终局前哨', speed:556, paddle:76, serves:0, types:['normal','armor','ball','bomb','beam','widen','steel'], build:buildL59,
+      desc:'暗红的墙上筑着最后一座前哨：中央堡垒连着左右两座塔楼，塔里各藏一颗球砖，堡里有加宽砖和炸弹。入口只剩堡底正中一格宽，是全旅程最窄的入口——但通道正上方就是定点球砖，只要送进一颗，堡内连锁会替你打开局面。这是终局要塞前的最后一道考验。' },
+    { name:'星核要塞', speed:520, paddle:76, serves:6, cores:3, types:['normal','ball','bomb','beam','steel','core'], build:buildL60,
+      desc:'最终要塞：蓝紫金的大腔室里还嵌着三个圆形的中空子图案，像三颗小星核，球可以钻进子腔里从内部打砖。入口是中央八格宽的超大漏斗，挡板正中竖直发球直接进入，钢唇收口让球不易原路掉回。三个金色核心分别嵌在左上、中上、右上的砖墙里，全部打碎才算通关。发球上限 6 次，用完要塞会重建，已通关的关卡不会丢。' }
   ];
 
   // 当前生效的关卡定义：每日关用 DAILY_DEF，旅程关用 LEVELS[level-1]
@@ -1774,6 +2558,9 @@
     steels: [],
     total: 0, broken: 0,
     servesLeft: 0,
+    servesTotal: 0,
+    attemptActive: false,   // 本局是否已点开始且未结算（用于未通关尝试计数）
+    assist: null,           // 当前局的自适应助力档位（assistFor 的结果）
     coresLeft: 0,
     elapsed: 0,           // 游戏内计时（毫秒），暂停停表
     speedMul: 1,
@@ -1785,14 +2572,17 @@
     var def = LEVELS[n-1];
     S.level = n;
     S.daily = false;
-    BALL_SPEED = def.speed;
+    S.assist = assistFor(ATT.lv[n] || 0);
+    BALL_SPEED = Math.round(def.speed * S.assist.speedMul);
     var lv = def.build();
     S.bricks = lv.bricks; S.steels = lv.steels;
     S.total = lv.total; S.broken = 0;
     S.coresLeft = 0;
     S.bricks.forEach(function(b){ if (b.type === 'core') S.coresLeft++; });
-    S.elapsed = 0; S.paddleX = W/2; PADDLE_W = def.paddle || 76;
-    S.servesLeft = def.serves || 0;
+    S.elapsed = 0; S.paddleX = W/2;
+    PADDLE_W = Math.min(180, Math.round((def.paddle || 76) * S.assist.paddleMul));
+    S.servesLeft = def.serves ? def.serves + S.assist.servesBonus : 0;
+    S.servesTotal = S.servesLeft;
     S.balls = [];
     enterServe();
     hudLv.textContent = '第 ' + n + ' 关';
@@ -1802,14 +2592,17 @@
   // 每日关加载：按 S.dailyDate 的种子生成布局，其余状态与普通关一致
   function loadDailyLevel(){
     S.daily = true;
+    S.assist = assistFor(ATT.dy[S.dailyDate] || 0);
     var built = buildDaily(S.dailyDate);
     S.bricks = built.bricks; S.steels = built.steels;
     S.total = built.total; S.broken = 0;
     S.coresLeft = 0;
     S.dailyDesc = built.desc;
-    BALL_SPEED = built.speed;
-    S.elapsed = 0; S.paddleX = W/2; PADDLE_W = 76;
+    BALL_SPEED = Math.round(built.speed * S.assist.speedMul);
+    S.elapsed = 0; S.paddleX = W/2;
+    PADDLE_W = Math.min(180, Math.round(76 * S.assist.paddleMul));
     S.servesLeft = 0;
+    S.servesTotal = 0;
     S.balls = [];
     enterServe();
     hudLv.textContent = '每日关卡';
@@ -2049,18 +2842,22 @@
   function startGame(){
     SFX.unlock();   // 用户手势内创建/恢复 AudioContext
     /* 背景音乐暂时停用：MUSIC.start() 调用已移除，MUSIC 模块与 jy-music 本地值保留，后期恢复时在此重新调用 */
+    S.attemptActive = true;   // 本局开始计时：未通关离开时记 1 次尝试
     showOverlay(null);
     S.mode = 'serve';
   }
   function restartLevel(){
     SFX.unlock();
+    registerFail();   // 重玩 = 上一局未通关放弃，记 1 次尝试（已结算的局不会重复记）
     /* 背景音乐暂时停用：MUSIC.start() 调用已移除，后期恢复时在此重新调用 */
     if (S.daily){ S.dailyDate = dailyDateStr(); loadDailyLevel(); }   // 跨 UTC 零点重开即换新关
     else loadLevel(S.level);
+    S.attemptActive = true;   // 新的一局即刻开始，按新档位助力重开
     showOverlay(null);
     S.mode = 'serve';
   }
   function goSelect(){
+    registerFail();   // 对局中途回选关 = 未通关尝试（在提示卡/结算页调用时不会误记）
     MUSIC.stop();
     buildSelect();
     refreshDailyUI();
@@ -2068,6 +2865,7 @@
     showOverlay(ovSelect);
   }
   function goHome(){
+    registerFail();   // 对局中途退出 = 未通关尝试
     MUSIC.stop();   // 退出回开始页：背景音乐停止
     refreshDailyUI();
     S.mode = 'menu';
@@ -2089,6 +2887,8 @@
   function winLevel(){
     if (S.mode === 'win' || S.mode === 'fail') return;
     S.mode = 'win';
+    S.attemptActive = false;
+    clearAttempts();   // 通关后该关尝试次数清零，下一关从 0 次开始
     MUSIC.stop();
     var t = S.elapsed;
     var isRecord, bestVal;
@@ -2109,15 +2909,15 @@
       var prevBest = PROG.best[n];
       isRecord = (prevBest == null || t < prevBest);
       if (isRecord) PROG.best[n] = t;
-      if (n < 30) PROG.unlocked = Math.max(PROG.unlocked, n + 1);
+      if (n < 60) PROG.unlocked = Math.max(PROG.unlocked, n + 1);
       saveProg();
       bestVal = PROG.best[n];
-      document.getElementById('winTitle').textContent = (n === 30) ? '全部通关！' : (def.serves ? '核心摧毁！' : '砖墙打通了');
-      document.getElementById('winDesc').textContent = (n === 30)
-        ? '第 30 关 · ' + def.name + ' 已完成，30 关全部通关！'
+      document.getElementById('winTitle').textContent = (n === 60) ? '全部通关！' : (def.serves ? '核心摧毁！' : '砖墙打通了');
+      document.getElementById('winDesc').textContent = (n === 60)
+        ? '第 60 关 · ' + def.name + ' 已完成，60 关全部通关！'
         : ('第 ' + n + ' 关 · ' + def.name + ' 已完成。');
       document.getElementById('winPct').textContent = def.serves ? '核心已碎' : (Math.floor(ratio()*100) + '%');
-      document.getElementById('btnNext').hidden = (n >= 30);
+      document.getElementById('btnNext').hidden = (n >= 60);
     }
     document.getElementById('winTime').textContent = fmt(t);
     document.getElementById('winBest').textContent = fmt(bestVal);
@@ -2130,9 +2930,10 @@
   function failLevel(){
     if (S.mode === 'fail' || S.mode === 'win') return;
     S.mode = 'fail';
+    registerFail();   // 要塞重建 = 1 次未通关尝试，下次挑战按档位给助力
     MUSIC.stop();
     var def = LEVELS[S.level-1];
-    document.getElementById('failDesc').textContent = def.serves + ' 次发球都用完了，要塞已重建，金色核心恢复原样。已经通关的关卡和最佳时间不会丢。';
+    document.getElementById('failDesc').textContent = (S.servesTotal || def.serves) + ' 次发球都用完了，要塞已重建，金色核心恢复原样。已经通关的关卡和最佳时间不会丢。';
     SFX.bomb();
     showOverlay(ovFail);
   }
@@ -2143,14 +2944,24 @@
   var cardDesc = document.getElementById('cardDesc');
   var cardGoal = document.getElementById('cardGoal');
   var cardTiny = document.getElementById('cardTiny');
+  // 助力诚实提示：有助力时在提示卡目标框里写清第几次挑战与助力内容（只改手感，不改关卡本身）
+  function assistNote(){
+    var a = S.assist;
+    if (!a || a.tier === 0) return '';
+    var txt = a.tier === 1
+      ? '挡板已加宽、球速已放慢'
+      : '挡板已加宽更多、球速已放慢更多' + (curDef().serves ? '、发球上限 +1' : '');
+    return '<br>第 ' + a.no + ' 次挑战：' + txt + '。';
+  }
   function fillCard(n){
     var def = LEVELS[n-1];
     cardTag.textContent = def.serves ? ('第 ' + n + ' 关 · 要塞') : ('第 ' + n + ' 关');
     cardTitle.textContent = def.name;
     cardDesc.textContent = def.desc;
-    cardGoal.innerHTML = def.serves
-      ? '目标：摧毁主腔室里的 <b>' + (def.cores === 3 ? '三个' : '两个') + '金色核心</b>，全部打碎才过关。发球上限 <b>' + def.serves + ' 次</b>，用完要塞就会重建。'
-      : '目标：打掉 <b>95%</b> 的可破坏砖块即可过关。丢球会自动补发，不用担心。';
+    var effServes = def.serves ? def.serves + (S.assist ? S.assist.servesBonus : 0) : 0;
+    cardGoal.innerHTML = (def.serves
+      ? '目标：摧毁主腔室里的 <b>' + (def.cores === 3 ? '三个' : '两个') + '金色核心</b>，全部打碎才过关。发球上限 <b>' + effServes + ' 次</b>，用完要塞就会重建。'
+      : '目标：打掉 <b>95%</b> 的可破坏砖块即可过关。丢球会自动补发，不用担心。') + assistNote();
     cardTiny.textContent = def.serves
       ? '点开始后才计时 · 发球次数用完不影响已通关进度'
       : '点开始后才计时 · 拖动屏幕或下方控制条都能移动挡板';
@@ -2159,7 +2970,7 @@
     cardTag.textContent = '每日关卡';
     cardTitle.textContent = '每日关卡 · ' + S.dailyDate;
     cardDesc.textContent = S.dailyDesc;
-    cardGoal.innerHTML = '目标：打掉 <b>95%</b> 的可破坏砖块即可过关。丢球会自动补发，不用担心。每日成绩按日期单独保存，不影响旅程进度。';
+    cardGoal.innerHTML = '目标：打掉 <b>95%</b> 的可破坏砖块即可过关。丢球会自动补发，不用担心。每日成绩按日期单独保存，不影响旅程进度。' + assistNote();
     cardTiny.textContent = '点开始后才计时 · 同一天布局相同，过了 UTC 零点换新关';
   }
   /* 每日入口（开始页 + 选关页）：显示当天 UTC 日期和今日是否已通关 / 最佳时间 */
@@ -2182,13 +2993,13 @@
   function buildSelect(){
     lvGrid.innerHTML = '';
     var cleared = 0;
-    for (var k=1;k<=30;k++){ if (PROG.best[k] != null) cleared++; }
-    if (selCount) selCount.textContent = '已通关 ' + cleared + ' / 30 关';
-    for (var i=1;i<=30;i++){
+    for (var k=1;k<=60;k++){ if (PROG.best[k] != null) cleared++; }
+    if (selCount) selCount.textContent = '已通关 ' + cleared + ' / 60 关';
+    for (var i=1;i<=60;i++){
       (function(n){
         var locked = n > PROG.unlocked;
         var best = PROG.best[n];
-        var isFort = (n === 10 || n === 20 || n === 30);
+        var isFort = (n % 10 === 0);
         var b = document.createElement('button');
         b.type = 'button';
         b.className = 'lvbtn' + (isFort ? ' fortress' : '') + (locked ? ' locked' : '');
@@ -2549,14 +3360,14 @@
   document.getElementById('btnSelectDaily').addEventListener('click', openDaily);
   document.getElementById('btnHomeStart').addEventListener('click', function(){
     SFX.unlock();
-    openLevel(Math.min(PROG.unlocked, 30));
+    openLevel(Math.min(PROG.unlocked, 60));
   });
   document.getElementById('btnHomeSelect').addEventListener('click', goSelect);
   document.getElementById('btnSelectBack').addEventListener('click', goHome);
   document.getElementById('btnStart').addEventListener('click', startGame);
   document.getElementById('btnStartLevels').addEventListener('click', goSelect);
   document.getElementById('btnAgain').addEventListener('click', restartLevel);
-  document.getElementById('btnNext').addEventListener('click', function(){ openLevel(Math.min(30, S.level + 1)); });
+  document.getElementById('btnNext').addEventListener('click', function(){ openLevel(Math.min(60, S.level + 1)); });
   document.getElementById('btnLevelsW').addEventListener('click', goSelect);
   document.getElementById('btnRetryF').addEventListener('click', restartLevel);
   document.getElementById('btnLevelsF').addEventListener('click', goSelect);
