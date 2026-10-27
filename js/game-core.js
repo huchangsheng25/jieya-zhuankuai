@@ -28,6 +28,16 @@
   // 环境标记：测试环境不锁定关卡，生产环境正常顺序锁定；测试环境通关不推进真实解锁进度
   var IS_TEST_ENV = (TEXT_CONFIG.env === 'test' || TEXT_CONFIG.env === 'testing' || TEXT_CONFIG.testMode === true);
   function effectiveUnlocked(){ return IS_TEST_ENV ? 100 : PROG.unlocked; }
+  // 选关页的“当前关”：没通关的就是刚打的那关，刚通关的进到下一关，全部通关停在 100 关；
+  // 每日关不占旅程关号时用真实解锁进度。测试环境下打过的测试关（关号大于真实解锁数）也停在那关。
+  function currentLevel(){
+    if (!S.daily && S.level >= 1 && S.level <= 100){
+      if (PROG.best[S.level] == null) return S.level;
+      if (S.level < PROG.unlocked) return Math.max(1, Math.min(100, PROG.unlocked));
+      return S.level;
+    }
+    return Math.max(1, Math.min(100, PROG.unlocked));
+  }
   function wxGet(k){ try{ var v = wx.getStorageSync(k); return (v===undefined||v===null)?null:v; }catch(e){ return null; } }
   function wxSet(k,v){ try{ wx.setStorageSync(k,v); }catch(e){} }
   function makeEl(id){
@@ -3435,6 +3445,7 @@
   function goSelect(){
     registerFail();   // 对局中途回选关 = 未通关尝试（在提示卡/结算页调用时不会误记）
     MUSIC.stop();
+    MG.selPage = Math.floor((currentLevel() - 1) / 20);   // 进选关就停在当前关那一页，不回第 1 页
     buildSelect();
     refreshDailyUI();
     S.mode = 'menu';
@@ -4110,7 +4121,7 @@
       mgText('选关', W/2, 36, 24, '#ffffff', 'center');
       var cleared = 0; for (var k=1;k<=100;k++){ if (PROG.best[k] != null) cleared++; }
       mgText('已通关 ' + cleared + ' / 100 关', W/2, 64, 13, '#c8cdd8', 'center');
-      if (IS_TEST_ENV) mgText('测试环境 · 全部关卡已解锁', W/2, 120, 12, '#e8b93a', 'center');
+      if (IS_TEST_ENV) mgText('测试环境 · 全部关卡已解锁', W/2, 616, 12, '#e8b93a', 'center');
       mgBtn(12, 84, 100, 36, '每日关卡', '#6b4fd8', '#ffffff', function(){ openDaily(); });
       mgBtn(248, 84, 100, 36, '返回', '#2a2e38', '#ffffff', function(){ goHome(); });
       var per = 20, start = MG.selPage * per + 1;
@@ -4119,13 +4130,18 @@
         var col = i % 5, row = Math.floor(i / 5);
         var x = 12 + col * 68, y = 132 + row * 68;
         var locked = n > effectiveUnlocked(), fort = (n % 10 === 0);
-        ctx.fillStyle = locked ? '#1c1f28' : (fort ? '#3a2c10' : '#2a2e38');
+        var isCur = (n === currentLevel());
+        ctx.fillStyle = locked ? '#1c1f28' : (isCur ? '#4a2a10' : (fort ? '#3a2c10' : '#2a2e38'));
         roundRect(x, y, 62, 62, 10); ctx.fill();
-        if (fort && !locked){ ctx.strokeStyle = '#e8b93a'; ctx.lineWidth = 2; roundRect(x, y, 62, 62, 10); ctx.stroke(); }
+        if (isCur){
+          ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = 3; roundRect(x, y, 62, 62, 10); ctx.stroke();
+          ctx.fillStyle = '#ff7a1a'; ctx.beginPath(); ctx.arc(x + 52, y + 10, 5, 0, Math.PI * 2); ctx.fill();
+        } else if (fort && !locked){ ctx.strokeStyle = '#e8b93a'; ctx.lineWidth = 2; roundRect(x, y, 62, 62, 10); ctx.stroke(); }
         if (locked){ mgText('锁', x+31, y+24, 15, '#8a90a0', 'center'); }
         else {
           mgText(n, x+31, y+22, 16, '#ffffff', 'center');
           if (fort) mgText('要塞', x+31, y+40, 11, '#e8b93a', 'center');
+          else if (isCur) mgText('当前', x+31, y+40, 11, '#ff9a1f', 'center');
           else if (PROG.best[n] != null) mgText(fmt(PROG.best[n]), x+31, y+42, 10, '#c8cdd8', 'center');
           (function(nn){ MG.buttons.push({x:x, y:y, w:62, h:62, action:function(){ openLevel(nn); }}); })(n);
         }
