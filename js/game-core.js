@@ -3911,15 +3911,31 @@
       if (S.mode === 'serve') mgText('点一下发球，拖动移挡板', W/2, 560, 14, '#c8cdd8', 'center');
       return;
     }
+    if (MG.showAge){
+      ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(0, 0, W, H);
+      mgCard(28, 150, 304, 340);
+      mgText('适龄提示', W/2, 184, 24, '#ffffff', 'center');
+      mgText('8+', W/2, 224, 36, '#e8b93a', 'center');
+      mgText('适合 8 岁及以上玩家', W/2, 254, 14, '#ffffff', 'center');
+      var ageLines = mgWrap('本游戏为休闲打砖块玩法，内容健康，无血腥暴力、恐怖、赌博、色情等不适宜内容，无内购与聊天功能，操作简单，适合 8 岁及以上玩家游玩。未成年人请在家长陪同与指导下合理安排游戏时间。', 19), ayy = 280;
+      ageLines.slice(0, 6).forEach(function(l){ mgText(l, W/2, ayy, 13, '#c8cdd8', 'center'); ayy += 20; });
+      mgBtn(88, 428, 184, 44, '知道了', '#ff7a1a', '#ffffff', function(){ MG.showAge = false; });
+      return;
+    }
     if (ov === 'ovHome'){
       ctx.fillStyle = '#101218'; ctx.fillRect(0, 0, W, H);
       mgText('解压砖块', W/2, 180, 36, '#ffffff', 'center');
-      mgText('一共 100 关 · 第 10、20、30、40、50、60、70、80、90、100 关是要塞', W/2, 225, 13, '#c8cdd8', 'center');
-      mgText('找隧道 · 送球入墙 · 连锁崩塌', W/2, 250, 13, '#ff9a1f', 'center');
       mgBtn(60, 300, 240, 48, '开始', '#ff7a1a', '#ffffff', function(){ SFX.unlock(); openLevel(Math.min(PROG.unlocked, 100)); });
       mgBtn(60, 364, 240, 48, '选关', '#2a2e38', '#ffffff', function(){ goSelect(); });
       mgBtn(60, 428, 240, 48, '每日关卡 · ' + dailyDateStr(), '#6b4fd8', '#ffffff', function(){ openDaily(); });
-      mgText('进度存在本机微信存储，不与网页版互通', W/2, 500, 12, '#8a90a0', 'center');
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      roundRect(28, 496, 304, 84, 12); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+      roundRect(28, 496, 304, 84, 12); ctx.stroke();
+      mgText('健康游戏提示 · 适合 8 岁以上玩家', W/2, 512, 12, '#e8b93a', 'center');
+      var antiLines = mgWrap('抵制不良游戏，拒绝盗版游戏。注意自我保护，谨防受骗上当。适度游戏益脑，沉迷游戏伤身。合理安排时间，享受健康生活。', 24), ay = 532;
+      antiLines.forEach(function(l){ mgText(l, W/2, ay, 11, '#c8cdd8', 'center'); ay += 17; });
+      mgText('进度存在本机微信存储，不与网页版互通', W/2, 598, 12, '#8a90a0', 'center');
       return;
     }
     if (ov === 'ovSelect'){
@@ -3968,14 +3984,15 @@
     }
     if (ov === 'ovPause'){
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, W, H);
-      mgCard(48, 150, 264, 320);
-      mgText('暂停', W/2, 184, 24, '#ffffff', 'center');
-      mgBtn(68, 210, 224, 44, '继续', '#ff7a1a', '#ffffff', function(){ resumeGame(); });
-      mgBtn(68, 266, 224, 44, '重玩', '#2a2e38', '#ffffff', function(){ restartLevel(); });
-      mgBtn(68, 322, 224, 44, '选关', '#2a2e38', '#ffffff', function(){ goSelect(); });
-      mgBtn(68, 378, 106, 40, '音效 ' + (SFX.isOn() ? '开' : '关'), '#2a2e38', '#ffffff', function(){ SFX.toggle(); });
-      mgBtn(186, 378, 106, 40, '瞄准线 ' + (AIM.on ? '开' : '关'), '#2a2e38', '#ffffff', function(){ AIM.toggle(); });
-      mgBtn(68, 428, 224, 32, '退出回开始页', '#1c1f28', '#c8cdd8', function(){ goHome(); });
+      mgCard(48, 140, 264, 360);
+      mgText('暂停', W/2, 174, 24, '#ffffff', 'center');
+      mgBtn(68, 200, 224, 44, '继续', '#ff7a1a', '#ffffff', function(){ resumeGame(); });
+      mgBtn(68, 256, 224, 44, '重玩', '#2a2e38', '#ffffff', function(){ restartLevel(); });
+      mgBtn(68, 312, 224, 44, '选关', '#2a2e38', '#ffffff', function(){ goSelect(); });
+      mgBtn(68, 368, 106, 40, '音效 ' + (SFX.isOn() ? '开' : '关'), '#2a2e38', '#ffffff', function(){ SFX.toggle(); });
+      mgBtn(186, 368, 106, 40, '瞄准线 ' + (AIM.on ? '开' : '关'), '#2a2e38', '#ffffff', function(){ AIM.toggle(); });
+      mgBtn(68, 416, 224, 40, '适龄提示 · 8+', '#2a2e38', '#ffffff', function(){ MG.showAge = true; });
+      mgBtn(68, 464, 224, 28, '退出回开始页', '#1c1f28', '#c8cdd8', function(){ goHome(); });
       return;
     }
     if (ov === 'ovWin'){
