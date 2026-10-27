@@ -9,7 +9,8 @@
     var d = {
       healthPrompt: { title: '健康游戏提示 · 适合 8 岁以上玩家', body: '抵制不良游戏，拒绝盗版游戏。注意自我保护，谨防受骗上当。适度游戏益脑，沉迷游戏伤身。合理安排时间，享受健康生活。' },
       ageRating: { title: '适龄提示', badge: '8+', subtitle: '适合 8 岁及以上玩家', body: '本游戏为休闲打砖块玩法，内容健康，无血腥暴力、恐怖、赌博、色情等不适宜内容，无内购与聊天功能，操作简单，适合 8 岁及以上玩家游玩。未成年人请在家长陪同与指导下合理安排游戏时间。', buttonLabel: '适龄提示 · 8+', closeLabel: '知道了' },
-      storageNote: '进度存在本机微信存储，不与网页版互通'
+      storageNote: '进度存在本机微信存储，不与网页版互通',
+      env: 'production'
     };
     try{
       var c = require('./textConfig.js');
@@ -17,10 +18,14 @@
         if (c.healthPrompt) d.healthPrompt = c.healthPrompt;
         if (c.ageRating) d.ageRating = c.ageRating;
         if (c.storageNote) d.storageNote = c.storageNote;
+        if (c.env) d.env = c.env;
       }
     }catch(e){}
     return d;
   })();
+  // 环境标记：测试环境不锁定关卡，生产环境正常顺序锁定；测试环境通关不推进真实解锁进度
+  var IS_TEST_ENV = (TEXT_CONFIG.env === 'test' || TEXT_CONFIG.env === 'testing' || TEXT_CONFIG.testMode === true);
+  function effectiveUnlocked(){ return IS_TEST_ENV ? 100 : PROG.unlocked; }
   function wxGet(k){ try{ var v = wx.getStorageSync(k); return (v===undefined||v===null)?null:v; }catch(e){ return null; } }
   function wxSet(k,v){ try{ wx.setStorageSync(k,v); }catch(e){} }
   function makeEl(id){
@@ -3413,7 +3418,7 @@
       var prevBest = PROG.best[n];
       isRecord = (prevBest == null || t < prevBest);
       if (isRecord) PROG.best[n] = t;
-      if (n < 100) PROG.unlocked = Math.max(PROG.unlocked, n + 1);
+      if (n < 100 && !IS_TEST_ENV) PROG.unlocked = Math.max(PROG.unlocked, n + 1);
       saveProg();
       bestVal = PROG.best[n];
       document.getElementById('winTitle').textContent = (n === 100) ? '全部通关！' : (def.serves ? '核心摧毁！' : '砖墙打通了');
@@ -3502,7 +3507,7 @@
     if (selCount) selCount.textContent = '已通关 ' + cleared + ' / 100 关';
     for (var i=1;i<=100;i++){
       (function(n){
-        var locked = n > PROG.unlocked;
+        var locked = n > effectiveUnlocked();
         var best = PROG.best[n];
         var isFort = (n % 10 === 0);
         var b = document.createElement('button');
@@ -3874,7 +3879,7 @@
   document.getElementById('btnSelectDaily').addEventListener('click', openDaily);
   document.getElementById('btnHomeStart').addEventListener('click', function(){
     SFX.unlock();
-    openLevel(Math.min(PROG.unlocked, 100));
+    openLevel(Math.min(effectiveUnlocked(), 100));
   });
   document.getElementById('btnHomeSelect').addEventListener('click', goSelect);
   document.getElementById('btnSelectBack').addEventListener('click', goHome);
@@ -3976,7 +3981,8 @@
     if (ov === 'ovHome'){
       ctx.fillStyle = '#101218'; ctx.fillRect(0, 0, W, H);
       mgText('解压砖块', W/2, 180, 36, '#ffffff', 'center');
-      mgBtn(60, 300, 240, 48, '开始', '#ff7a1a', '#ffffff', function(){ SFX.unlock(); openLevel(Math.min(PROG.unlocked, 100)); });
+      if (IS_TEST_ENV) mgText('测试环境 · 全部关卡已解锁', W/2, 222, 13, '#e8b93a', 'center');
+      mgBtn(60, 300, 240, 48, '开始', '#ff7a1a', '#ffffff', function(){ SFX.unlock(); openLevel(Math.min(effectiveUnlocked(), 100)); });
       mgBtn(60, 364, 240, 48, '选关', '#2a2e38', '#ffffff', function(){ goSelect(); });
       mgBtn(60, 428, 240, 48, '每日关卡 · ' + dailyDateStr(), '#6b4fd8', '#ffffff', function(){ openDaily(); });
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
@@ -3994,6 +4000,7 @@
       mgText('选关', W/2, 36, 24, '#ffffff', 'center');
       var cleared = 0; for (var k=1;k<=100;k++){ if (PROG.best[k] != null) cleared++; }
       mgText('已通关 ' + cleared + ' / 100 关', W/2, 64, 13, '#c8cdd8', 'center');
+      if (IS_TEST_ENV) mgText('测试环境 · 全部关卡已解锁', W/2, 120, 12, '#e8b93a', 'center');
       mgBtn(12, 84, 100, 36, '每日关卡', '#6b4fd8', '#ffffff', function(){ openDaily(); });
       mgBtn(248, 84, 100, 36, '返回', '#2a2e38', '#ffffff', function(){ goHome(); });
       var per = 20, start = MG.selPage * per + 1;
@@ -4001,7 +4008,7 @@
         var n = start + i; if (n > 100) break;
         var col = i % 5, row = Math.floor(i / 5);
         var x = 12 + col * 68, y = 132 + row * 68;
-        var locked = n > PROG.unlocked, fort = (n % 10 === 0);
+        var locked = n > effectiveUnlocked(), fort = (n % 10 === 0);
         ctx.fillStyle = locked ? '#1c1f28' : (fort ? '#3a2c10' : '#2a2e38');
         roundRect(x, y, 62, 62, 10); ctx.fill();
         if (fort && !locked){ ctx.strokeStyle = '#e8b93a'; ctx.lineWidth = 2; roundRect(x, y, 62, 62, 10); ctx.stroke(); }
