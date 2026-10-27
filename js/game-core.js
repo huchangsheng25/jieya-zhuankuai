@@ -4,6 +4,8 @@
 
   // ===== 微信小游戏适配层（本段为移植新增，原网页逻辑在其后）=====
   var MG = {winW:390, winH:844, dpr:1, scale:1, ox:0, oy:0, currentOverlay:null, buttons:[], selPage:0, windowHandlers:{}, docHandlers:{}, els:{}};
+  // 音频选项：iOS 静音键打开时也不静音游戏音效（仅影响本小游戏音频，不改系统设置）
+  try { if (typeof wx !== 'undefined' && wx.setInnerAudioOption) wx.setInnerAudioOption({ obeyMuteSwitch: false, mixWithOther: false }); } catch(e){}
   // 文字提示全部取自配置文件 js/textConfig.js，改配置文件即可，找不到文件时用下面的默认值兜底
   var TEXT_CONFIG = (function(){
     var d = {
@@ -64,6 +66,25 @@
     devicePixelRatio:1
   };
   if (typeof performance === 'undefined'){ var performance = {now:function(){ return Date.now(); }}; }
+
+  // 微信 WebAudio：直接用 wx.createWebAudioContext() 建上下文，不走 new AudioContext()
+  // 的构造返回路径，避免 JSCore/V8 对原生对象的构造差异；resume() 要处理 Promise 与
+  // 'suspended'/'interrupted' 等多种非 running 状态，state 只有 'closed' 才放弃。
+  function createWXAudioContext(){
+    try { if (typeof wx !== 'undefined' && wx.createWebAudioContext) return wx.createWebAudioContext(); } catch(e){}
+    try { var AC = window.AudioContext || window.webkitAudioContext; if (AC) return new AC(); } catch(e2){}
+    return null;
+  }
+  function resumeAudioContext(ctx){
+    if (!ctx) return;
+    try {
+      if (ctx.state === 'running') return;
+      var r = ctx.resume ? ctx.resume() : null;
+      if (r && typeof r.then === 'function') r.then(function(){
+        try { if (typeof console !== 'undefined' && console.log) console.log('[SFX] resumed, state=' + ctx.state); } catch(e){}
+      }, function(){});
+    } catch(e){}
+  }
 
 
   /* ================= 基础常量（逻辑场地 360 × 640） ================= */
@@ -274,17 +295,22 @@
     var winStart = 0, winCount = 0;
     function unlock(){
       if (!actx){
-        var AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return;
-        try { actx = new AC(); } catch(e){ return; }
-        master = actx.createGain();
-        master.gain.value = 0.5;
-        master.connect(actx.destination);
+        actx = createWXAudioContext();
+        if (!actx) return;
+        try {
+          master = actx.createGain();
+          master.gain.value = 0.5;
+          master.connect(actx.destination);
+        } catch(e){}
+        try { if (typeof console !== 'undefined' && console.log) console.log('[SFX] context created, state=' + actx.state); } catch(e){}
       }
-      if (actx.state === 'suspended') actx.resume();
+      resumeAudioContext(actx);
     }
     function gate(kind, minGap){
-      if (!enabled || !actx || actx.state !== 'running') return false;
+      if (!enabled) return false;
+      if (!actx) unlock();
+      if (!actx || actx.state === 'closed') return false;
+      if (actx.state !== 'running') resumeAudioContext(actx);
       var now = performance.now();
       if (lastPlay[kind] && now - lastPlay[kind] < minGap) return false;
       if (now - winStart > 100){ winStart = now; winCount = 0; }
@@ -294,27 +320,31 @@
       return true;
     }
     function tone(freq, dur, type, vol, slideTo, delay){
-      var t0 = actx.currentTime + (delay || 0);
-      var o = actx.createOscillator(), g = actx.createGain();
-      o.type = type || 'square';
-      o.frequency.setValueAtTime(freq, t0);
-      if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t0 + dur);
-      g.gain.setValueAtTime(vol, t0);
-      g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-      o.connect(g); g.connect(master);
-      o.start(t0); o.stop(t0 + dur + 0.03);
+      try {
+        var t0 = (actx.currentTime || 0) + (delay || 0);
+        var o = actx.createOscillator(), g = actx.createGain();
+        o.type = type || 'square';
+        if (o.frequency.setValueAtTime) o.frequency.setValueAtTime(freq, t0); else o.frequency.value = freq;
+        if (slideTo && o.frequency.exponentialRampToValueAtTime) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t0 + dur);
+        if (g.gain.setValueAtTime) g.gain.setValueAtTime(vol, t0); else g.gain.value = vol;
+        if (g.gain.exponentialRampToValueAtTime) g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+        o.connect(g); g.connect(master);
+        o.start(t0); o.stop(t0 + dur + 0.03);
+      } catch(e){}
     }
     function noise(dur, vol, cutoff){
-      var t0 = actx.currentTime;
-      var len = Math.max(1, Math.floor(actx.sampleRate * dur));
-      var buf = actx.createBuffer(1, len, actx.sampleRate);
-      var d = buf.getChannelData(0);
-      for (var i=0;i<len;i++) d[i] = (Math.random()*2 - 1) * (1 - i/len);
-      var src = actx.createBufferSource(); src.buffer = buf;
-      var f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cutoff || 800;
-      var g = actx.createGain(); g.gain.value = vol;
-      src.connect(f); f.connect(g); g.connect(master);
-      src.start(t0);
+      try {
+        var t0 = actx.currentTime || 0;
+        var len = Math.max(1, Math.floor(actx.sampleRate * dur));
+        var buf = actx.createBuffer(1, len, actx.sampleRate);
+        var d = buf.getChannelData(0);
+        for (var i=0;i<len;i++) d[i] = (Math.random()*2 - 1) * (1 - i/len);
+        var src = actx.createBufferSource(); src.buffer = buf;
+        var f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cutoff || 800;
+        var g = actx.createGain(); g.gain.value = vol;
+        src.connect(f); f.connect(g); g.connect(master);
+        src.start(t0);
+      } catch(e){}
     }
     return {
       unlock: unlock,
@@ -381,9 +411,8 @@
     ];
     function ensure(){
       if (!actx){
-        var AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return false;
-        try { actx = new AC(); } catch(e){ return false; }
+        actx = createWXAudioContext();
+        if (!actx) return false;
         bus = actx.createGain();
         bus.gain.value = 0.19;                  // 音乐总增益约 0.19，背景偏上但不抢前景
         bus.connect(actx.destination);
@@ -398,7 +427,7 @@
         delay.connect(fbFilter); fbFilter.connect(fb); fb.connect(delay);
         delay.connect(wet); wet.connect(actx.destination);
       }
-      if (actx.state === 'suspended') actx.resume();
+      resumeAudioContext(actx);
       return true;
     }
     /* 双层微失谐 pad：正弦 + 三角（+0.3% 失谐），共用起音 0.45 秒、释放 1.1 秒的包络，
@@ -4093,6 +4122,9 @@
     var cx = t.clientX || 0, cy = t.clientY || 0;
     var lg = toLogical({clientX:cx, clientY:cy});
     if (kind === 'start'){
+      // 首次触摸按下时就解锁音频：微信 WebAudio 要求在 touchstart 手势内创建/恢复上下文，
+      // 只在 touchend 的按钮回调里解锁可能错过手势，之后所有音效都会被 gate 挡掉。
+      try { if (SFX.isOn()) SFX.unlock(); } catch(e){}
       MG.pendingUI = null; MG.touchMoved = false; MG.touchStartX = cx; MG.touchStartY = cy;
       var hit = null;
       for (var i=0;i<MG.buttons.length;i++){
@@ -4133,7 +4165,7 @@
     if (wx.onTouchCancel) wx.onTouchCancel(function(e){ mgTouch('cancel', e); });
     if (wx.onWindowResize) wx.onWindowResize(function(){ resize(); });
     if (wx.onHide) wx.onHide(function(){ if (S.mode === 'play' || S.mode === 'serve') pauseGame(); });
-    if (wx.onShow) wx.onShow(function(){ try{ resize(); }catch(err){} });
+    if (wx.onShow) wx.onShow(function(){ try{ resize(); }catch(err){} try{ if (SFX.isOn()) SFX.unlock(); }catch(e2){} });
     if (wx.onKeyDown) wx.onKeyDown(function(e){ var k = mgKeyFromCode(e.keyCode); if (k && MG.windowHandlers.keydown) MG.windowHandlers.keydown({key:k, preventDefault:function(){}}); });
     if (wx.onKeyUp) wx.onKeyUp(function(e){ var k = mgKeyFromCode(e.keyCode); if (k && MG.windowHandlers.keyup) MG.windowHandlers.keyup({key:k, preventDefault:function(){}}); });
   }catch(err){}
