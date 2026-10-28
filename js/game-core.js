@@ -3,7 +3,7 @@
   "use strict";
 
   // ===== 微信小游戏适配层（本段为移植新增，原网页逻辑在其后）=====
-  var MG = {winW:390, winH:844, dpr:1, scale:1, ox:0, oy:0, currentOverlay:null, buttons:[], selAnchor:0, selScroll:0, selDrag:null, windowHandlers:{}, docHandlers:{}, els:{}};
+  var MG = {winW:390, winH:844, dpr:1, scale:1, ox:0, oy:0, currentOverlay:null, buttons:[], selAnchor:0, selScroll:0, selDrag:null, showRank:false, windowHandlers:{}, docHandlers:{}, els:{}};
   // 音频选项：iOS 静音键打开时也不静音游戏音效（仅影响本小游戏音频，不改系统设置）
   try { if (typeof wx !== 'undefined' && wx.setInnerAudioOption) wx.setInnerAudioOption({ obeyMuteSwitch: false, mixWithOther: false }); } catch(e){}
   // 文字提示全部取自配置文件 js/textConfig.js，改配置文件即可，找不到文件时用下面的默认值兜底
@@ -214,6 +214,56 @@
   } catch(e){}
   function saveProg(){
     try { window.localStorage.setItem('jy-progress', JSON.stringify(PROG)); } catch(e){}
+  }
+
+  /* ================= 好友榜（开放数据域） =================
+     托管键：每关一个 lv_<n>，值为本地最佳用时（百分之一秒）的字符串，越小越好。
+     100 关共 100 个键，在每用户 128 个 key-value 对上限内。只在旅程关通关时上传，
+     只上传本地最佳且优于上次已上传的值；上传失败静默，不影响结算。每日关不上传。 */
+  var RANK_CTX = null, RANK_CTX_TRIED = false;
+  function rankCtx(){
+    if (RANK_CTX_TRIED) return RANK_CTX;
+    RANK_CTX_TRIED = true;
+    try {
+      if (typeof wx !== 'undefined' && wx.getOpenDataContext) RANK_CTX = wx.getOpenDataContext();
+    } catch(e){ RANK_CTX = null; }
+    if (RANK_CTX && !RANK_CTX.canvas) RANK_CTX = null; // 无共享画布则视为不可用
+    return RANK_CTX;
+  }
+  function rankUploadedMap(){
+    try { return JSON.parse(window.localStorage.getItem('jy-rank-uploaded') || '{}') || {}; } catch(e){ return {}; }
+  }
+  function uploadRankBest(n, bestMs){
+    try {
+      if (!bestMs || !isFinite(bestMs)) return;
+      var cs = Math.round(bestMs / 10);
+      var key = 'lv_' + n;
+      var map = rankUploadedMap();
+      if (map[key] != null && cs >= map[key]) return; // 已上传过更好或相等的成绩
+      if (typeof wx === 'undefined' || !wx.setUserCloudStorage) return;
+      wx.setUserCloudStorage({ KVDataList: [{ key: key, value: String(cs) }],
+        success: function(){ try { var m2 = rankUploadedMap(); m2[key] = cs; window.localStorage.setItem('jy-rank-uploaded', JSON.stringify(m2)); } catch(e){} },
+        fail: function(){ /* 离线或接口失败时静默，下次通关再试 */ }
+      });
+    } catch(e){}
+  }
+  // 向开放数据域发消息：只能传原始值（number/string/boolean/null/undefined），不能传对象/数组。
+  function postRankLoad(){
+    try {
+      var c = rankCtx(); if (!c || !c.postMessage) return;
+      var n = S.level;
+      var best = (!S.daily && PROG.best[n] != null) ? String(Math.round(PROG.best[n] / 10)) : '';
+      c.postMessage({ cmd: 'load', key: 'lv_' + n, myScore: best, level: String(n) });
+    } catch(e){}
+  }
+  function openRankPanel(){
+    if (S.daily) return; // 每日关没有好友榜
+    try {
+      var c = rankCtx();
+      if (c && c.canvas){ try { c.canvas.width = 576; c.canvas.height = 600; } catch(e){} }
+    } catch(e){}
+    MG.showRank = true;
+    postRankLoad(); // 重设画布尺寸会清空画布，须在尺寸设置之后发消息让开放数据域重绘
   }
 
   /* ================= 自适应难度：未通关尝试次数（单独存本地新键 jy-attempts） =================
@@ -3442,6 +3492,7 @@
     S.mode = 'serve';
   }
   function goSelect(){
+    MG.showRank = false;
     registerFail();   // 对局中途回选关 = 未通关尝试（在提示卡/结算页调用时不会误记）
     MUSIC.stop();
     MG.selAnchor = computeSelectAnchor();   // 先算定位（此时 S.mode 还是 win/card/pause，算完再改 menu）
@@ -3453,6 +3504,7 @@
     showOverlay(ovSelect);
   }
   function goHome(){
+    MG.showRank = false;
     registerFail();   // 对局中途退出 = 未通关尝试
     MUSIC.stop();   // 退出回开始页：背景音乐停止
     refreshDailyUI();
@@ -3475,6 +3527,7 @@
   function winLevel(){
     if (S.mode === 'win' || S.mode === 'fail') return;
     S.mode = 'win';
+    MG.showRank = false; // 每次新结算都先关好友榜面板
     S.attemptActive = false;
     clearAttempts();   // 通关后该关尝试次数清零，下一关从 0 次开始
     MUSIC.stop();
@@ -3501,6 +3554,7 @@
       saveProg();
       flowLevel = Math.min(100, n + 1);   // 通关后流程位置进到下一关，选关页与首页“开始”都跟下一关走
       bestVal = PROG.best[n];
+      uploadRankBest(n, bestVal); // 好友榜：上传本关本地最佳成绩（仅旅程关）
       document.getElementById('winTitle').textContent = (n === 100) ? '全部通关！' : (def.serves ? '核心摧毁！' : '砖墙打通了');
       document.getElementById('winDesc').textContent = (n === 100)
         ? '第 100 关 · ' + def.name + ' 已完成，100 关全部通关！'
@@ -4202,6 +4256,21 @@
     }
     if (ov === 'ovWin'){
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, W, H);
+      if (MG.showRank){
+        // 好友榜面板：列表由开放数据域画到共享画布，这里只画标题并把共享画布贴上来。
+        mgCard(28, 96, 304, 448);
+        mgText('好友榜', W/2, 126, 22, '#ffffff', 'center');
+        mgText('第 ' + S.level + ' 关 · 最快通关 · 只显示玩过本游戏的好友', W/2, 152, 12, '#c8cdd8', 'center');
+        var rc = rankCtx();
+        if (rc && rc.canvas){
+          try { ctx.drawImage(rc.canvas, 36, 162, 288, 300); } catch(e){}
+        } else {
+          mgText('当前环境暂不支持好友榜', W/2, 300, 13, '#8a90a0', 'center');
+        }
+        mgBtn(48, 500, 120, 40, '刷新', '#2a2e38', '#ffffff', function(){ postRankLoad(); });
+        mgBtn(192, 500, 120, 40, '返回', '#ff7a1a', '#ffffff', function(){ MG.showRank = false; });
+        return;
+      }
       mgCard(28, 140, 304, 340);
       mgText(document.getElementById('winTitle').textContent, W/2, 176, 22, '#ffffff', 'center');
       var wl = mgWrap(document.getElementById('winDesc').textContent, 19), wy = 206;
@@ -4211,7 +4280,12 @@
       var showNext = !document.getElementById('btnNext').hidden;
       if (showNext) mgBtn(48, 380, 120, 44, '下一关', '#ff7a1a', '#ffffff', function(){ openLevel(Math.min(100, S.level + 1)); });
       mgBtn(showNext ? 192 : 120, 380, 120, 44, '重玩', '#2a2e38', '#ffffff', function(){ restartLevel(); });
-      mgBtn(48, 436, 264, 36, '回选关', '#1c1f28', '#c8cdd8', function(){ goSelect(); });
+      if (S.daily){
+        mgBtn(48, 436, 264, 36, '回选关', '#1c1f28', '#c8cdd8', function(){ goSelect(); });
+      } else {
+        mgBtn(48, 436, 120, 36, '好友榜', '#2a2e38', '#ffffff', function(){ openRankPanel(); });
+        mgBtn(192, 436, 120, 36, '回选关', '#1c1f28', '#c8cdd8', function(){ goSelect(); });
+      }
       return;
     }
     if (ov === 'ovFail'){
