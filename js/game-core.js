@@ -3409,17 +3409,13 @@
   function openLevel(n){
     loadLevel(n);
     flowLevel = n;
-    fillCard(n);
-    S.mode = 'card';
-    showOverlay(ovStart);
+    startGame();   // 提示卡已停用：选关后直接进发球画面，不再显示提示卡
   }
   function openDaily(){
     SFX.unlock();
     S.dailyDate = dailyDateStr();   // 打开时按当前 UTC 日期算当日布局
     loadDailyLevel();
-    fillDailyCard();
-    S.mode = 'card';
-    showOverlay(ovStart);
+    startGame();   // 提示卡已停用：每日关也直接进发球画面
   }
   function startGame(){
     SFX.unlock();   // 用户手势内创建/恢复 AudioContext
@@ -4086,12 +4082,21 @@
     if (!ov && (S.mode === 'play' || S.mode === 'serve')){
       ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, 0, W, 44);
       mgBtn(8, 8, 44, 26, '暂停', '#2a2e38', '#ffffff', function(){ if (S.mode === 'pause') resumeGame(); else pauseGame(); });
+      // 关卡信息放在“暂停”右边：旅程关显示“第 N 关 · 关名”（要塞长名缩为“要塞”，不撞中间计时），每日关显示“每日关卡”。
+      var hudDef = S.daily ? null : LEVELS[S.level-1];
+      var hudLabel = S.daily ? '每日关卡' : ('第 ' + S.level + ' 关 · ' + (hudDef.serves && hudDef.name.length > 4 ? '要塞' : hudDef.name));
+      mgText(hudLabel, 58, 21, 12, '#ffffff', 'left');
       mgText(hudTime ? hudTime.textContent : fmt(S.elapsed), W/2, 21, 15, '#ffffff', 'center');
       mgBtn(W-52, 8, 44, 26, '×' + S.speedMul, '#2a2e38', '#ffffff', function(){ S.speedMul = S.speedMul === 1 ? 2 : (S.speedMul === 2 ? 3 : 1); });
       var p = Math.floor(ratio()*100);
       ctx.fillStyle = '#2a2e38'; ctx.fillRect(8, 50, W-16, 5);
       ctx.fillStyle = '#ff9a1f'; ctx.fillRect(8, 50, (W-16)*p/100, 5);
-      mgText((hudSub ? hudSub.textContent : '') + '  ' + p + '%  球 ' + S.balls.length, W/2, 68, 12, '#c8cdd8', 'center');
+      var sub2 = S.daily
+        ? ((hudSub ? hudSub.textContent : '') + '  ' + p + '%  球 ' + S.balls.length)
+        : (hudDef.serves
+          ? ('发球剩余 ' + S.servesLeft + ' · 核心 ' + S.coresLeft + '  ' + p + '%  球 ' + S.balls.length)
+          : (p + '%  球 ' + S.balls.length));
+      mgText(sub2, W/2, 68, 12, '#c8cdd8', 'center');
       if (S.mode === 'serve') mgText('点一下发球，拖动移挡板', W/2, 560, 14, '#c8cdd8', 'center');
       return;
     }
