@@ -3,7 +3,7 @@
   "use strict";
 
   // ===== 微信小游戏适配层（本段为移植新增，原网页逻辑在其后）=====
-  var MG = {winW:390, winH:844, dpr:1, scale:1, ox:0, oy:0, currentOverlay:null, buttons:[], selPage:0, selAnchor:0, windowHandlers:{}, docHandlers:{}, els:{}};
+  var MG = {winW:390, winH:844, dpr:1, scale:1, ox:0, oy:0, currentOverlay:null, buttons:[], selAnchor:0, selScroll:0, selDrag:null, windowHandlers:{}, docHandlers:{}, els:{}};
   // 音频选项：iOS 静音键打开时也不静音游戏音效（仅影响本小游戏音频，不改系统设置）
   try { if (typeof wx !== 'undefined' && wx.setInnerAudioOption) wx.setInnerAudioOption({ obeyMuteSwitch: false, mixWithOther: false }); } catch(e){}
   // 文字提示全部取自配置文件 js/textConfig.js，改配置文件即可，找不到文件时用下面的默认值兜底
@@ -3449,7 +3449,8 @@
     registerFail();   // 对局中途回选关 = 未通关尝试（在提示卡/结算页调用时不会误记）
     MUSIC.stop();
     MG.selAnchor = computeSelectAnchor();   // 先算定位（此时 S.mode 还是 win/card/pause，算完再改 menu）
-    MG.selPage = Math.floor((MG.selAnchor - 1) / 20);   // 进选关就停在当前关那一页，不回第 1 页
+    // 滚动定位：让当前关所在行出现在可视区上部（上面留一行作上下文），到顶/到底夹紧。
+    MG.selScroll = Math.max(0, Math.min((20 * 68 - 6) - (596 - 132), Math.floor((MG.selAnchor - 1) / 5) * 68 - 68));
     buildSelect();
     refreshDailyUI();
     S.mode = 'menu';
@@ -4126,35 +4127,45 @@
       mgText('选关', W/2, 36, 24, '#ffffff', 'center');
       var cleared = 0; for (var k=1;k<=100;k++){ if (PROG.best[k] != null) cleared++; }
       mgText('已通关 ' + cleared + ' / 100 关', W/2, 64, 13, '#c8cdd8', 'center');
-      if (IS_TEST_ENV) mgText('测试环境 · 全部关卡已解锁', W/2, 616, 12, '#e8b93a', 'center');
       mgBtn(12, 84, 100, 36, '每日关卡', '#6b4fd8', '#ffffff', function(){ openDaily(); });
       mgBtn(248, 84, 100, 36, '返回', '#2a2e38', '#ffffff', function(){ goHome(); });
-      var per = 20, start = MG.selPage * per + 1;
-      for (var i=0;i<per;i++){
-        var n = start + i; if (n > 100) break;
+      // 100 关一屏上下滑动：网格在 132..596 的可视区内随 selScroll 滑动，超出部分裁掉；
+      // 要塞不再金边/金底高亮，只保留“要塞”小字（与最佳时间同色），当前关仍橙边+“当前”。
+      var gridTop = 132, gridBottom = 596, pitch = 68;
+      var maxScroll = (20 * pitch - 6) - (gridBottom - gridTop);
+      MG.selScroll = Math.max(0, Math.min(maxScroll, MG.selScroll || 0));
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, gridTop, W, gridBottom - gridTop); ctx.clip();
+      for (var i=0;i<100;i++){
+        var n = i + 1;
         var col = i % 5, row = Math.floor(i / 5);
-        var x = 12 + col * 68, y = 132 + row * 68;
+        var x = 12 + col * 68, y = gridTop + row * pitch - MG.selScroll;
+        if (y + 62 < gridTop || y > gridBottom) continue;   // 完全在可视区外不画，按钮也不注册
         var locked = n > effectiveUnlocked(), fort = (n % 10 === 0);
         var isCur = (n === MG.selAnchor);
-        ctx.fillStyle = locked ? '#1c1f28' : (isCur ? '#4a2a10' : (fort ? '#3a2c10' : '#2a2e38'));
+        ctx.fillStyle = locked ? '#1c1f28' : (isCur ? '#4a2a10' : '#2a2e38');
         roundRect(x, y, 62, 62, 10); ctx.fill();
         if (isCur){
           ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = 3; roundRect(x, y, 62, 62, 10); ctx.stroke();
           ctx.fillStyle = '#ff7a1a'; ctx.beginPath(); ctx.arc(x + 52, y + 10, 5, 0, Math.PI * 2); ctx.fill();
-        } else if (fort && !locked){ ctx.strokeStyle = '#e8b93a'; ctx.lineWidth = 2; roundRect(x, y, 62, 62, 10); ctx.stroke(); }
+        }
         if (locked){ mgText('锁', x+31, y+24, 15, '#8a90a0', 'center'); }
         else {
           mgText(n, x+31, y+22, 16, '#ffffff', 'center');
-          if (fort) mgText('要塞', x+31, y+40, 11, '#e8b93a', 'center');
-          else if (isCur) mgText('当前', x+31, y+40, 11, '#ff9a1f', 'center');
+          if (isCur) mgText('当前', x+31, y+40, 11, '#ff9a1f', 'center');
+          else if (fort) mgText('要塞', x+31, y+40, 11, '#c8cdd8', 'center');
           else if (PROG.best[n] != null) mgText(fmt(PROG.best[n]), x+31, y+42, 10, '#c8cdd8', 'center');
           (function(nn){ MG.buttons.push({x:x, y:y, w:62, h:62, action:function(){ openLevel(nn); }}); })(n);
         }
         if (fort && locked) mgText('要塞', x+31, y+44, 11, '#8a90a0', 'center');
       }
-      mgBtn(12, 560, 100, 40, '上一页', '#2a2e38', '#ffffff', function(){ MG.selPage = Math.max(0, MG.selPage-1); });
-      mgText('第 ' + (MG.selPage+1) + ' / 5 页', W/2, 580, 13, '#c8cdd8', 'center');
-      mgBtn(248, 560, 100, 40, '下一页', '#2a2e38', '#ffffff', function(){ MG.selPage = Math.min(4, MG.selPage+1); });
+      ctx.restore();
+      // 右侧细滚动条：位置随滚动变化，提示一共 100 关、当前位置
+      var trackH = gridBottom - gridTop, thumbH = Math.max(40, trackH * trackH / (20 * pitch - 6));
+      var thumbY = gridTop + (maxScroll > 0 ? (MG.selScroll / maxScroll) * (trackH - thumbH) : 0);
+      ctx.fillStyle = '#262a33'; ctx.fillRect(W - 5, gridTop, 3, trackH);
+      ctx.fillStyle = '#5a6070'; ctx.fillRect(W - 5, thumbY, 3, thumbH);
+      mgText(IS_TEST_ENV ? '测试环境 · 全部关卡已解锁 · 上下滑动查看' : '上下滑动查看全部关卡', W/2, 618, 12, IS_TEST_ENV ? '#e8b93a' : '#8a90a0', 'center');
       return;
     }
     if (ov === 'ovStart'){
@@ -4228,6 +4239,11 @@
       // 只在 touchend 的按钮回调里解锁可能错过手势，之后所有音效都会被 gate 挡掉。
       try { if (SFX.isOn()) SFX.unlock(); } catch(e){}
       MG.pendingUI = null; MG.touchMoved = false; MG.touchStartX = cx; MG.touchStartY = cy;
+      if (MG.currentOverlay === 'ovSelect' && lg.y >= 126){
+        // 选关网格区：按下即开始滚动手势，先不认按钮；松手时没滑过才按点按处理。
+        MG.selDrag = { startLgY: lg.y, startScroll: MG.selScroll || 0, moved: false };
+        return;
+      }
       var hit = null;
       for (var i=0;i<MG.buttons.length;i++){
         var b = MG.buttons[i];
@@ -4240,12 +4256,31 @@
     }
     if (kind === 'move'){
       if (Math.abs(cx - MG.touchStartX) > 9 || Math.abs(cy - MG.touchStartY) > 9) MG.touchMoved = true;
+      if (MG.selDrag){
+        // 手指上滑（逻辑 y 变小）-> 内容上滚，后面的关进入可视区；到顶/到底夹紧。
+        if (MG.touchMoved) MG.selDrag.moved = true;
+        var maxScrollMv = (20 * 68 - 6) - (596 - 132);
+        MG.selScroll = Math.max(0, Math.min(maxScrollMv, MG.selDrag.startScroll + (MG.selDrag.startLgY - lg.y)));
+        return;
+      }
       if (MG.pendingUI) return;
       var hm = MG.canvasEl && MG.canvasEl._h;
       if (hm && hm.pointermove) hm.pointermove({pointerType:'touch', pointerId:1, clientX:cx, clientY:cy, preventDefault:function(){}});
       return;
     }
     if (kind === 'end'){
+      if (MG.selDrag){
+        var wasTap = !MG.touchMoved && !MG.selDrag.moved;
+        MG.selDrag = null;
+        if (wasTap){
+          // 点按：用松手位置命中当帧注册的按钮（没滑动时滚动没变，与按下时位置一致）。
+          for (var j=0;j<MG.buttons.length;j++){
+            var b2 = MG.buttons[j];
+            if (lg.x >= b2.x && lg.x <= b2.x + b2.w && lg.y >= b2.y && lg.y <= b2.y + b2.h){ if (b2.action) b2.action(); break; }
+          }
+        }
+        MG.pendingUI = null; return;
+      }
       if (MG.pendingUI){
         if (!MG.touchMoved && MG.pendingUI.action) MG.pendingUI.action();
         MG.pendingUI = null; return;
@@ -4255,6 +4290,7 @@
       return;
     }
     if (kind === 'cancel'){
+      MG.selDrag = null;
       MG.pendingUI = null;
       var hc = MG.canvasEl && MG.canvasEl._h;
       if (hc && hc.pointercancel) hc.pointercancel({pointerType:'touch', pointerId:1, clientX:cx, clientY:cy, preventDefault:function(){}});
